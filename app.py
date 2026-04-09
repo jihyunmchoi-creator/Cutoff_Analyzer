@@ -6,9 +6,9 @@ import math
 from PIL import Image
 
 # 페이지 설정
-st.set_page_config(page_title="헤드램프 ROI 분석기", layout="centered")
+st.set_page_config(page_title="Cutoff Line Analyzer", layout="centered")
 
-st.title("📱 모바일 헤드램프 분석기")
+st.title("📱 컷오프라인 분석기")
 st.caption("아이폰에서 사진을 촬영하거나 업로드하여 컷오프 변화량을 분석하세요.")
 
 # 1. 사이드바 설정 영역
