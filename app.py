@@ -5,7 +5,7 @@ import numpy as np
 import math
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
-from PIL import Image, ImageOps  # ImageOps 추가 (자동 회전 방지용)
+from PIL import Image, ImageOps
 from streamlit_cropper import st_cropper
 
 # 페이지 기본 설정
@@ -37,16 +37,15 @@ zoom_sel = st.sidebar.selectbox(
 FOV = fov_options[zoom_sel]
 
 st.title("🔦 Headlamp Cut-off Analyzer")
-st.caption("모바일 화면 최적화 및 아이폰 사진 자동 회전 보정이 적용된 컷오프 분석기")
+st.caption("모바일 스크롤 갇힘 방지 내비게이션 기능이 포함된 하이브리드 컷오프 분석기")
 
 # 이미지 업로더
 uploaded_file = st.file_uploader("헤드램프 조사 이미지를 업로드하세요", type=["jpg", "jpeg", "png"])
 
 if uploaded_file is not None:
-    # 1. PIL 이미지로 로드 후 아이폰 EXIF 태그 기준 자동 회전 정정
+    # PIL 이미지로 로드 후 아이폰 EXIF 태그 기준 자동 회전 정정
     raw_pil = Image.open(uploaded_file)
-    origin_pil = ImageOps.exif_transpose(raw_pil) # 📱 아이폰 세로 사진 돌아감 방지 핵심 코드
-    
+    origin_pil = ImageOps.exif_transpose(raw_pil)
     W_img, H_img = origin_pil.size
     
     st.subheader("🔍 분석 영역(ROI) 설정")
@@ -61,10 +60,20 @@ if uploaded_file is not None:
     mode_tab1, mode_tab2 = st.tabs(["📱 모바일 터치 드래그 조작", "🎛️ 정밀 슬라이더 조작"])
     
     with mode_tab1:
-        st.info("💡 이미지 위의 노란색 테두리 상자를 손가락으로 드래그하거나 모서리를 잡고 늘려보세요.")
+        st.info("💡 이미지 조작 시 아이폰 스크롤이 막히면 아래 노란색 버튼을 눌러 탈출하세요.")
         
-        # 📱 모바일 화면 크기에 맞게 채워지도록 원본 비율 보존형 축소 가이드 레이아웃 적용
-        # st_cropper 내부 렌더링 오류 및 에러(NoneType) 방지를 위한 래핑
+        # 📱 [방법 1 핵심 코드] 스크롤 고립을 막기 위한 강제 스크롤 이동 버튼 배치
+        st.markdown(
+            '<a href="#result-section" target="_self">'
+            '<button style="width:100%; padding:14px; background-color:#ffdd00; color:black; '
+            'font-weight:bold; border:none; border-radius:8px; margin-bottom:15px; font-size:16px; '
+            'box-shadow: 0px 4px 6px rgba(0,0,0,0.3); cursor:pointer;">'
+            '⬇️ 터치 조작 완료 (아래 결과창으로 스크롤 이동)'
+            '</button></a>', 
+            unsafe_allowed_html=True
+        )
+        
+        # 크롭 도구 실행
         cropped_box = st_cropper(
             origin_pil, 
             realtime_update=True, 
@@ -73,14 +82,13 @@ if uploaded_file is not None:
             return_type='box'
         )
         
-        # 🛡️ 에러 방지 방어 코드: cropped_box가 정상적으로 사각형을 반환할 때만 데이터 파싱
+        # 방어 코드 및 세션 좌표 업데이트
         if cropped_box is not None and isinstance(cropped_box, dict) and 'x' in cropped_box:
             tx1 = int(cropped_box['x'])
             ty1 = int(cropped_box['y'])
             tx2 = int(tx1 + cropped_box['w'])
             ty2 = int(ty1 + cropped_box['h'])
             
-            # 유효한 크기일 때만 세션 좌표 업데이트
             if (tx2 - tx1) >= 10 and (ty2 - ty1) >= 10:
                 x1, y1, x2, y2 = tx1, ty1, tx2, ty2
                 st.session_state.roi_coords = (x1, y1, x2, y2)
@@ -100,7 +108,7 @@ if uploaded_file is not None:
     img_b = cv2.cvtColor(np.array(origin_pil), cv2.COLOR_RGB2BGR)
     roi_b = img_b[y1:y2, x1:x2]
     
-    # 핵심 알고리즘 가동 (OpenCV 계산 및 수식)
+    # 핵심 알고리즘 가동
     roi_g = np.clip(roi_b.astype(np.float32) * gain, 0, 255).astype(np.uint8)
     hsv = cv2.cvtColor(roi_g, cv2.COLOR_BGR2HSV)
     
@@ -132,6 +140,10 @@ if uploaded_file is not None:
         mm_raw = D * math.tan(math.radians((l_y - c_y) * deg_per_px))
         mm_std = D * math.tan(math.radians((std_y - c_y) * deg_per_px))
         pct_raw, pct_std = (mm_raw / D) * 100, (mm_std / D) * 100
+        
+        # 📱 버튼 클릭 시 화면이 자동으로 포커싱될 타겟 앵커 지점 설정
+        st.markdown('<div id="result-section" style="padding-top:20px;"></div>', unsafe_allowed_html=True)
+        st.markdown("---")
         
         # 결과 시각화 레이아웃
         view_col, graph_col = st.columns([1, 1])
