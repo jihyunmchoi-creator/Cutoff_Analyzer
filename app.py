@@ -138,6 +138,6 @@ if uploaded_file is not None:
             <p style="margin: 0; font-size: 22px; font-weight: bold; color: {status_color};">상태: {status_text}</p>
         </div>
         """
-        st.markdown(res_html, unsafe_allowed_html=True)
+        st.markdown(res_html, unsafe_allow_html=True)
     else:
         st.error("레이저 라인을 인식하지 못했습니다. 밝기 Gain을 조절하거나 다른 이미지를 시도해 주세요.")
