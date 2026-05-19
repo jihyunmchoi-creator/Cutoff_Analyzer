@@ -5,7 +5,7 @@ import numpy as np
 import math
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
-from PIL import Image
+from PIL import Image, ImageOps  # ImageOps 추가 (자동 회전 방지용)
 from streamlit_cropper import st_cropper
 
 # 페이지 기본 설정
@@ -37,14 +37,16 @@ zoom_sel = st.sidebar.selectbox(
 FOV = fov_options[zoom_sel]
 
 st.title("🔦 Headlamp Cut-off Analyzer")
-st.caption("안정적인 터치 드래그 상자(st-cropper)와 정밀 슬라이더를 지원하는 분석기")
+st.caption("모바일 화면 최적화 및 아이폰 사진 자동 회전 보정이 적용된 컷오프 분석기")
 
 # 이미지 업로더
 uploaded_file = st.file_uploader("헤드램프 조사 이미지를 업로드하세요", type=["jpg", "jpeg", "png"])
 
 if uploaded_file is not None:
-    # PIL 이미지로 변환
-    origin_pil = Image.open(uploaded_file)
+    # 1. PIL 이미지로 로드 후 아이폰 EXIF 태그 기준 자동 회전 정정
+    raw_pil = Image.open(uploaded_file)
+    origin_pil = ImageOps.exif_transpose(raw_pil) # 📱 아이폰 세로 사진 돌아감 방지 핵심 코드
+    
     W_img, H_img = origin_pil.size
     
     st.subheader("🔍 분석 영역(ROI) 설정")
@@ -61,7 +63,8 @@ if uploaded_file is not None:
     with mode_tab1:
         st.info("💡 이미지 위의 노란색 테두리 상자를 손가락으로 드래그하거나 모서리를 잡고 늘려보세요.")
         
-        # st_cropper는 크롭 박스의 기하학적 좌표 딕셔너리를 반환하도록 설정 가능 (should_resize=False)
+        # 📱 모바일 화면 크기에 맞게 채워지도록 원본 비율 보존형 축소 가이드 레이아웃 적용
+        # st_cropper 내부 렌더링 오류 및 에러(NoneType) 방지를 위한 래핑
         cropped_box = st_cropper(
             origin_pil, 
             realtime_update=True, 
@@ -70,7 +73,8 @@ if uploaded_file is not None:
             return_type='box'
         )
         
-        if cropped_box:
+        # 🛡️ 에러 방지 방어 코드: cropped_box가 정상적으로 사각형을 반환할 때만 데이터 파싱
+        if cropped_box is not None and isinstance(cropped_box, dict) and 'x' in cropped_box:
             tx1 = int(cropped_box['x'])
             ty1 = int(cropped_box['y'])
             tx2 = int(tx1 + cropped_box['w'])
