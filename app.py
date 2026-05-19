@@ -70,7 +70,7 @@ if uploaded_file is not None:
             'box-shadow: 0px 4px 6px rgba(0,0,0,0.3); cursor:pointer;">'
             '⬇️ 터치 조작 완료 (아래 결과창으로 스크롤 이동)'
             '</button></a>', 
-            unsafe_allowed_html=True
+            unsafe_allow_html=True
         )
         
         # 크롭 도구 실행
