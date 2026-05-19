@@ -6,7 +6,7 @@ import math
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
 from PIL import Image
-from streamlit_image_crop import streamlit_image_crop
+from streamlit_cropper import st_cropper
 
 # 페이지 기본 설정
 st.set_page_config(page_title="Headlamp Cut-off Analyzer", layout="wide")
@@ -37,7 +37,7 @@ zoom_sel = st.sidebar.selectbox(
 FOV = fov_options[zoom_sel]
 
 st.title("🔦 Headlamp Cut-off Analyzer")
-st.caption("터치 드래그와 정밀 슬라이더를 동시에 지원하는 하이브리드 컷오프 분석기")
+st.caption("안정적인 터치 드래그 상자(st-cropper)와 정밀 슬라이더를 지원하는 분석기")
 
 # 이미지 업로더
 uploaded_file = st.file_uploader("헤드램프 조사 이미지를 업로드하세요", type=["jpg", "jpeg", "png"])
@@ -49,32 +49,34 @@ if uploaded_file is not None:
     
     st.subheader("🔍 분석 영역(ROI) 설정")
     
-    # 탭 메뉴를 이용해 터치 방식과 슬라이더 방식을 깔끔하게 분리
-    mode_tab1, mode_tab2 = st.tabs(["📱 모바일 터치 드래그 조작", "🎛️ 정밀 슬라이더 조작"])
-    
-    # 세션 상태(Session State)를 활용해 초기 좌표 지정
+    # 세션 상태(Session State)를 활용해 초기 좌표 설정 및 유지
     if "roi_coords" not in st.session_state:
         st.session_state.roi_coords = (int(W_img*0.35), int(H_img*0.35), int(W_img*0.65), int(H_img*0.65))
         
     x1, y1, x2, y2 = st.session_state.roi_coords
     
+    # 조작 모드 탭 분리
+    mode_tab1, mode_tab2 = st.tabs(["📱 모바일 터치 드래그 조작", "🎛️ 정밀 슬라이더 조작"])
+    
     with mode_tab1:
-        st.info("💡 이미지 내부의 사각형 박스를 드래그하거나 모서리를 터치해 크기를 늘려보세요.")
-        # 터치 조작 컴포넌트 실행
-        cropped_info = streamlit_image_crop(
+        st.info("💡 이미지 위의 노란색 테두리 상자를 손가락으로 드래그하거나 모서리를 잡고 늘려보세요.")
+        
+        # st_cropper는 크롭 박스의 기하학적 좌표 딕셔너리를 반환하도록 설정 가능 (should_resize=False)
+        cropped_box = st_cropper(
             origin_pil, 
-            aspect_ratio=None, 
-            box_color="#ffdd00", 
-            return_type="box"
+            realtime_update=True, 
+            box_color='#ffdd00', 
+            aspect_ratio=None,
+            return_type='box'
         )
-        # 터치 조작 발생 시 좌표 실시간 업데이트
-        if cropped_info:
-            tx1 = int(cropped_info["left"] * W_img / 100)
-            ty1 = int(cropped_info["top"] * H_img / 100)
-            tx2 = int((cropped_info["left"] + cropped_info["width"]) * W_img / 100)
-            ty2 = int((cropped_info["top"] + cropped_info["height"]) * H_img / 100)
+        
+        if cropped_box:
+            tx1 = int(cropped_box['x'])
+            ty1 = int(cropped_box['y'])
+            tx2 = int(tx1 + cropped_box['w'])
+            ty2 = int(ty1 + cropped_box['h'])
             
-            # 최소 크기 방어 및 유효성 검증 후 세션에 반영
+            # 유효한 크기일 때만 세션 좌표 업데이트
             if (tx2 - tx1) >= 10 and (ty2 - ty1) >= 10:
                 x1, y1, x2, y2 = tx1, ty1, tx2, ty2
                 st.session_state.roi_coords = (x1, y1, x2, y2)
@@ -83,18 +85,18 @@ if uploaded_file is not None:
         st.info("💡 1픽셀 단위의 정밀한 세부 조정이 필요할 때 슬라이더 바를 조작하세요.")
         col1, col2 = st.columns(2)
         with col1:
-            roi_y = st.slider("Vertical ROI (Y축 범위)", 0, H_img, (y1, y2), key="slider_y")
+            roi_y = st.slider("Vertical ROI (Y축 범위)", 0, H_img, (y1, y2), key="slider_y_val")
         with col2:
-            roi_x = st.slider("Horizontal ROI (X축 범위)", 0, W_img, (x1, x2), key="slider_x")
+            roi_x = st.slider("Horizontal ROI (X축 범위)", 0, W_img, (x1, x2), key="slider_x_val")
             
         x1, y1, x2, y2 = roi_x[0], roi_y[0], roi_x[1], roi_y[1]
         st.session_state.roi_coords = (x1, y1, x2, y2)
 
-    # OpenCV 프로세싱을 위한 셋업
+    # OpenCV 프로세싱 진행
     img_b = cv2.cvtColor(np.array(origin_pil), cv2.COLOR_RGB2BGR)
     roi_b = img_b[y1:y2, x1:x2]
     
-    # 핵심 알고리즘 가동
+    # 핵심 알고리즘 가동 (OpenCV 계산 및 수식)
     roi_g = np.clip(roi_b.astype(np.float32) * gain, 0, 255).astype(np.uint8)
     hsv = cv2.cvtColor(roi_g, cv2.COLOR_BGR2HSV)
     
