@@ -37,7 +37,7 @@ zoom_sel = st.sidebar.selectbox(
 FOV = fov_options[zoom_sel]
 
 st.title("🔦 Headlamp Cut-off Analyzer")
-st.caption("컴포넌트 키 바인딩 기술로 실시간 미반응 현상을 완벽 해결한 분석기")
+st.caption("터치 좌표 실시간 연동이 완벽히 해결된 단일 화면 분석기")
 
 # 이미지 업로더
 uploaded_file = st.file_uploader("헤드램프 조사 이미지를 업로드하세요", type=["jpg", "jpeg", "png"])
@@ -59,7 +59,7 @@ if uploaded_file is not None:
     
     st.info("💡 이미지 위의 노란색 테두리 상자를 손가락으로 드래그하거나 모서리를 잡고 늘려보세요.")
     
-    # 🚨 [해결 핵심 코드 1] key를 지정하여 크롭 도구의 상태 변화를 스트림릿 세션이 강제 감시하도록 설정
+    # 터치 크롭 도구 실행
     cropped_box = st_cropper(
         origin_pil, 
         realtime_update=True, 
@@ -69,29 +69,30 @@ if uploaded_file is not None:
         key="headlamp_cropper"
     )
     
-    # 🚨 [해결 핵심 코드 2] 컴포넌트가 반환하는 내부 상태 딕셔너리를 직접 추적
-    # 사용자가 터치 조작을 바꿀 때마다 무조건 감지되어 최신 좌표로 가공됩니다.
-    if cropped_box is not None and isinstance(cropped_box, dict) and 'x' in cropped_box:
-        tx1 = int(cropped_box['x'])
-        ty1 = int(cropped_box['y'])
-        tx2 = int(tx1 + cropped_box['w'])
-        ty2 = int(ty1 + cropped_box['h'])
+    # 🚨 [해결 핵심 코드] 반환되는 딕셔너리의 Key 이름(x/left, width/w) 호환성 완벽 대응
+    # 에러 없이 안전하게 값을 추출하여 즉시 세션에 반영합니다.
+    if cropped_box and isinstance(cropped_box, dict):
+        tx1 = int(cropped_box.get('x', cropped_box.get('left', st.session_state.roi_x1)))
+        ty1 = int(cropped_box.get('y', cropped_box.get('top', st.session_state.roi_y1)))
         
-        if (tx2 - tx1) >= 10 and (ty2 - ty1) >= 10:
-            # 상태 변경 시 무조건 세션 갱신
-            if (st.session_state.roi_x1 != tx1 or 
-                st.session_state.roi_y1 != ty1 or 
-                st.session_state.roi_x2 != tx2 or 
-                st.session_state.roi_y2 != ty2):
-                
-                st.session_state.roi_x1 = tx1
-                st.session_state.roi_y1 = ty1
-                st.session_state.roi_x2 = tx2
-                st.session_state.roi_y2 = ty2
-                st.rerun()
+        tw = int(cropped_box.get('width', cropped_box.get('w', st.session_state.roi_x2 - st.session_state.roi_x1)))
+        th = int(cropped_box.get('height', cropped_box.get('h', st.session_state.roi_y2 - st.session_state.roi_y1)))
+        
+        tx2 = tx1 + tw
+        ty2 = ty1 + th
+        
+        # 유효 크기(10픽셀 이상)일 경우에만 세션 갱신
+        if tw >= 10 and th >= 10:
+            st.session_state.roi_x1 = tx1
+            st.session_state.roi_y1 = ty1
+            st.session_state.roi_x2 = tx2
+            st.session_state.roi_y2 = ty2
 
-    # 연산부 변수 할당
-    x1, y1, x2, y2 = st.session_state.roi_x1, st.session_state.roi_y1, st.session_state.roi_x2, st.session_state.roi_y2
+    # 연산부 변수 할당 (현재 실행 사이클에서 즉시 반영됨)
+    x1 = st.session_state.roi_x1
+    y1 = st.session_state.roi_y1
+    x2 = st.session_state.roi_x2
+    y2 = st.session_state.roi_y2
 
     # OpenCV 프로세싱 진행
     img_b = cv2.cvtColor(np.array(origin_pil), cv2.COLOR_RGB2BGR)
@@ -138,6 +139,8 @@ if uploaded_file is not None:
         with view_col:
             st.subheader("🖼️ 분석 결과 이미지")
             disp_img = img_b.copy()
+            
+            # 분석 란에 유저가 선택한 상자(노란색) 및 컷오프(녹색), 레이저(빨간색) 그리기
             cv2.rectangle(disp_img, (x1, y1), (x2, y2), (0, 221, 255), 3)
             cv2.line(disp_img, (x1, int(l_y)), (x2, int(l_y)), (0, 0, 255), 3)
             cv2.line(disp_img, (x1, int(c_y)), (x2, int(c_y)), (0, 255, 0), 4)
