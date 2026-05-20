@@ -33,7 +33,7 @@ zoom_sel = st.sidebar.selectbox("촬영 배율 선택", zoom_labels)
 FOV = IPHONE_15_PRO_MAX_SPECS[zoom_sel]
 
 st.title("🔦 Headlamp Cut-off Analyzer")
-st.caption("모바일 시인성 개선(폰트 3배 확대) 및 그래프 범례가 추가된 정밀 분석기")
+st.caption("모바일 시인성 개선 및 순수 UP/DOWN 위치 판정 분석기")
 
 # 이미지 업로더
 uploaded_file = st.file_uploader("헤드램프 조사 이미지를 업로드하세요", type=["jpg", "jpeg", "png"])
@@ -127,10 +127,10 @@ if uploaded_file is not None:
         with view_col:
             st.subheader("🖼️ 분석 결과 이미지")
             disp_img = img_b.copy()
-            # 🚨 [폰트 설정 변경] 기존 1.0에서 3.0으로 3배 확대, 두께도 강화
+            # 폰트 3배 확대 적용 유지
             font = cv2.FONT_HERSHEY_SIMPLEX
             f_scale = 3.0 
-            f_thick = 7   # 굵게 표시하여 시인성 확보
+            f_thick = 7
 
             # 1. 레이저 정렬선 (빨간색)
             cv2.line(disp_img, (0, int(c_y)), (W_img, int(c_y)), (0, 0, 255), 5)
@@ -142,7 +142,6 @@ if uploaded_file is not None:
 
             # 3. 유럽 사양 -1% 하향 가상 라인 (파란색)
             cv2.line(disp_img, (0, int(std_y)), (W_img, int(std_y)), (255, 0, 0), 4)
-            # 글자가 길어지므로 위치를 오른쪽으로 더 밀어서 배치
             cv2.putText(disp_img, "EU -1% Line", (W_img - 850, int(std_y) + 100), font, f_scale, (255, 0, 0), f_thick)
 
             # ROI 박스 (하늘색)
@@ -153,7 +152,7 @@ if uploaded_file is not None:
             
         with graph_col:
             st.subheader("📊 Intensity Profile")
-            fig, ax = plt.subplots(figsize=(6, 5)) # 높이 약간 조절
+            fig, ax = plt.subplots(figsize=(6, 5))
             fig.patch.set_facecolor('#121212')
             ax.set_facecolor('#1e1e1e')
             
@@ -163,15 +162,10 @@ if uploaded_file is not None:
             
             ax.plot(mm_ax, profile, color='#ffffff', lw=2, label="Profile")
             
-            # 🚨 [그래프 라벨 및 범례 추가] 
-            # 레이저 정렬선 (기준 0)
             ax.axvline(x=0, color='#ff3b30', lw=2, label="Laser Line (Ref)")
-            # 실제 인식된 컷오프 위치
             ax.axvline(x=mm_raw, color='#30d158', lw=2.5, label="Cut-off Line")
-            # 유럽 1% 기준선
             ax.axvline(x=-(D*0.01), color='#0a84ff', linestyle='--', lw=2, label="EU -1% Line")
             
-            # 범례 표시 설정 (배경 어둡게, 글자 하얗게)
             ax.legend(loc='upper right', facecolor='#1e1e1e', edgecolor='white', labelcolor='white', fontsize='medium')
             
             ax.xaxis.set_major_locator(ticker.MultipleLocator(50))
@@ -183,18 +177,21 @@ if uploaded_file is not None:
             
         st.markdown("---")
         
-        # 사양별 판정 및 출력
+        # 🚨 [수정됨] FAIL/PASS 삭제하고 각 기준선 대비 순수 위치 판정(UP/DOWN)으로 복구
+        # 허용 오차 5.0mm 이내는 정상, 그 외에는 명확히 UP/DOWN만 출력
         if abs(mm_raw) <= 5.0:
-            us_status, us_color = "PASS (OK)", "#30d158"
+            us_status, us_color = "정상 (OK)", "#30d158"
         elif mm_raw > 5.0:
-            us_status, us_color = "FAIL (TOO HIGH)", "#ff453a"
+            us_status, us_color = "높음 (UP)", "#ff453a"
         else:
-            us_status, us_color = "FAIL (TOO LOW)", "#ff9f0a"
+            us_status, us_color = "낮음 (DOWN)", "#ff9f0a"
 
-        if mm_std >= 0.0: 
-            eu_status, eu_color = "PASS (OK)", "#0a84ff"
+        if abs(mm_std) <= 5.0: 
+            eu_status, eu_color = "정상 (OK)", "#0a84ff"
+        elif mm_std > 5.0:
+            eu_status, eu_color = "높음 (UP)", "#ff453a"
         else:
-            eu_status, eu_color = "FAIL (TOO HIGH)", "#ff453a"
+            eu_status, eu_color = "낮음 (DOWN)", "#ff9f0a"
         
         res_html = f"""
         <div style="background-color: #1e1e1e; padding: 20px; border-radius: 10px; border: 1px solid #444; text-align: left;">
