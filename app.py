@@ -7,9 +7,43 @@ import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
 from PIL import Image, ImageOps
 from streamlit_cropper import st_cropper
+import streamlit.components.v1 as components
 
 # 페이지 기본 설정
 st.set_page_config(page_title="Headlamp Cut-off Analyzer", layout="wide")
+
+# html2canvas를 이용한 클라이언트 사이드 영역별 캡처 스크립트 정의
+# 특정 ID 요소를 찾아 이미지화한 뒤 다운로드 링크를 강제 트리거합니다.
+SCREENSHOT_JS = """
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script>
+function captureElement(elementId, filename) {
+    // Streamlit 상위 DOM에서 해당 ID를 가진 요소를 탐색
+    const element = window.parent.document.getElementById(elementId);
+    if (!element) {
+        alert("캡처할 영역을 찾을 수 없습니다. 분석을 먼저 실행해주세요.");
+        return;
+    }
+    
+    // 모바일 대응 및 화질 향상을 위해 scale 옵션 부여
+    html2canvas(element, {
+        scale: 2,
+        useCORS: true,
+        backgroundColor: "#121212"
+    }).then(canvas => {
+        const link = window.parent.document.createElement('a');
+        link.download = filename;
+        link.href = canvas.toDataURL('image/png');
+        link.click();
+    }).catch(err => {
+        console.error("Screenshot error:", err);
+    });
+}
+</script>
+"""
+
+# 자바스크립트 함수 베이스 로드
+components.html(SCREENSHOT_JS, height=0, width=0)
 
 # 아이폰 15 프로 맥스 전용 하드웨어 광학 데이터베이스 (수직 FOV 기준)
 IPHONE_15_PRO_MAX_SPECS = {
@@ -31,6 +65,21 @@ st.sidebar.info("기기: iPhone 15 Pro Max")
 zoom_labels = list(IPHONE_15_PRO_MAX_SPECS.keys())
 zoom_sel = st.sidebar.selectbox("촬영 배율 선택", zoom_labels)
 FOV = IPHONE_15_PRO_MAX_SPECS[zoom_sel]
+
+# 🚨 [신규 기능] 사이드바 스크린샷 저장 버튼 세션
+st.sidebar.markdown("---")
+st.sidebar.subheader("📸 결과 스크린샷 저장")
+
+# 각 버튼 클릭 시 부모창의 자바스크립트 함수를 실행하도록 구성
+if st.sidebar.button("🖼️ 분석 이미지 저장", use_container_width=True):
+    components.html("<script>captureElement('capture-view', 'analysis_image.png');</script>", height=0, width=0)
+
+if st.sidebar.button("📊 그래프 영역 저장", use_container_width=True):
+    components.html("<script>captureElement('capture-graph', 'intensity_profile.png');</script>", height=0, width=0)
+
+if st.sidebar.button("📋 판정 결과 저장", use_container_width=True):
+    components.html("<script>captureElement('capture-result', 'judgment_result.png');</script>", height=0, width=0)
+
 
 # 제목 및 캡션 텍스트
 st.markdown("# 🔦 Headlamp<br>Cut-off Analyzer", unsafe_allow_html=True)
@@ -106,7 +155,7 @@ if uploaded_file is not None:
         deg_per_px = FOV / H_img
         c_y = c_y_auto - (math.degrees(math.atan(manual_offset / D)) / deg_per_px)
 
-        # 🚨 [원복됨] 중복 인식 방지를 위해 레이저 주변 검색 제외 영역을 다시 30px로 확대
+        # 레이저 주변 영역 마스킹 (검색 제외 영역 30px 유지)
         safe_margin = 30 
         roi_b = img_b[y1:y2, x1:x2]
         roi_g = np.clip(roi_b.astype(np.float32) * gain, 0, 255).astype(np.uint8)
@@ -126,9 +175,10 @@ if uploaded_file is not None:
         view_col, graph_col = st.columns([1, 1])
         
         with view_col:
+            # 🚨 html2canvas 추적용 div 매핑
+            st.markdown('<div id="capture-view">', unsafe_allow_html=True)
             st.subheader("🖼️ 분석 결과 이미지")
             disp_img = img_b.copy()
-            # 폰트 3배 확대 적용 유지
             font = cv2.FONT_HERSHEY_SIMPLEX
             f_scale = 3.0 
             f_thick = 7
@@ -150,8 +200,11 @@ if uploaded_file is not None:
             
             disp_img_rgb = cv2.cvtColor(disp_img, cv2.COLOR_BGR2RGB)
             st.image(disp_img_rgb, use_container_width=True)
+            st.markdown('</div>', unsafe_allow_html=True)
             
         with graph_col:
+            # 🚨 html2canvas 추적용 div 매핑
+            st.markdown('<div id="capture-graph">', unsafe_allow_html=True)
             st.subheader("📊 Intensity Profile")
             fig, ax = plt.subplots(figsize=(6, 5))
             fig.patch.set_facecolor('#121212')
@@ -169,7 +222,6 @@ if uploaded_file is not None:
             
             ax.legend(loc='upper right', facecolor='#1e1e1e', edgecolor='white', labelcolor='white', fontsize='medium')
             
-            # 눈금값(그리드) 간격 유지 및 x축 텍스트 45도 회전 적용
             ax.xaxis.set_major_locator(ticker.MultipleLocator(50))
             ax.grid(True, color='#555', lw=0.8)
             ax.set_xlabel("Height (mm)", color='white')
@@ -179,6 +231,7 @@ if uploaded_file is not None:
             plt.setp(ax.get_xticklabels(), rotation=45, ha="right")
             
             st.pyplot(fig)
+            st.markdown('</div>', unsafe_allow_html=True)
             
         st.markdown("---")
         
@@ -197,8 +250,9 @@ if uploaded_file is not None:
         else:
             eu_status, eu_color = "낮음 (DOWN)", "#ff9f0a"
         
+        # 🚨 html2canvas 추적용 div 매핑
         res_html = f"""
-        <div style="background-color: #1e1e1e; padding: 20px; border-radius: 10px; border: 1px solid #444; text-align: left;">
+        <div id="capture-result" style="background-color: #1e1e1e; padding: 20px; border-radius: 10px; border: 1px solid #444; text-align: left;">
             <div style="margin-bottom: 20px; padding-bottom: 15px; border-bottom: 1px solid #333;">
                 <span style="color: #888; font-size: 14px; font-weight: bold; display: block; margin-bottom: 5px;">🇺🇸 [북미 사양 기준 결과]</span>
                 <span style="font-size: 26px; font-weight: bold; color: white; display: inline-block; margin-right: 20px;">{mm_raw:+.1f} mm ({pct_raw:+.2f}%)</span>
