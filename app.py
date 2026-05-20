@@ -33,7 +33,7 @@ zoom_sel = st.sidebar.selectbox("촬영 배율 선택", zoom_labels)
 FOV = IPHONE_15_PRO_MAX_SPECS[zoom_sel]
 
 st.title("🔦 Headlamp Cut-off Analyzer")
-st.caption("북미/유럽 사양별 합부 판정이 각각 독립적으로 분리 표시되는 정밀 분석기")
+st.caption("실시간 라인 라벨링 및 유럽 -1% 가상선 시각화가 적용된 분석기")
 
 # 이미지 업로더
 uploaded_file = st.file_uploader("헤드램프 조사 이미지를 업로드하세요", type=["jpg", "jpeg", "png"])
@@ -120,18 +120,33 @@ if uploaded_file is not None:
         pct_raw, pct_std = (mm_raw / D) * 100, (mm_std / D) * 100
         
         st.markdown("---")
-        
         view_col, graph_col = st.columns([1, 1])
         
         with view_col:
             st.subheader("🖼️ 분석 결과 이미지")
             disp_img = img_b.copy()
-            cv2.rectangle(disp_img, (x1, y1), (x2, y2), (0, 221, 255), 3)
-            cv2.line(disp_img, (x1, int(l_y)), (x2, int(l_y)), (0, 0, 255), 3)
-            cv2.line(disp_img, (x1, int(c_y)), (x2, int(c_y)), (0, 255, 0), 4)
+            # 폰트 설정
+            font = cv2.FONT_HERSHEY_SIMPLEX
+            f_scale = 1.0 # 글자 크기
+            f_thick = 2   # 글자 두께
+
+            # 1. 레이저 레벨러 라인 (빨간색) + 라벨
+            cv2.line(disp_img, (0, int(c_y)), (W_img, int(c_y)), (0, 0, 255), 3)
+            cv2.putText(disp_img, "LASER LINE", (20, int(c_y) - 10), font, f_scale, (0, 0, 255), f_thick)
+
+            # 2. 인식된 컷오프 라인 (초록색) + 라벨
+            cv2.line(disp_img, (0, int(l_y)), (W_img, int(l_y)), (0, 255, 0), 3)
+            cv2.putText(disp_img, "CUT-OFF", (20, int(l_y) - 10), font, f_scale, (0, 255, 0), f_thick)
+
+            # 3. 유럽 사양 1% 하향 가상 라인 (파란색) + 라벨 (🚨 EU -1% Line으로 최종 수정 완료)
+            cv2.line(disp_img, (0, int(std_y)), (W_img, int(std_y)), (255, 0, 0), 2)
+            cv2.putText(disp_img, "EU -1% Line", (W_img - 320, int(std_y) + 35), font, f_scale, (255, 0, 0), f_thick)
+
+            # 유저 선택 ROI 박스 (하늘색)
+            cv2.rectangle(disp_img, (x1, y1), (x2, y2), (255, 255, 0), 2)
             
             disp_img_rgb = cv2.cvtColor(disp_img, cv2.COLOR_BGR2RGB)
-            st.image(disp_img_rgb, use_container_width=True, caption="[레드: 레이저선 / 그린: 컷오프선]")
+            st.image(disp_img_rgb, use_container_width=True, caption="[레드: 레이저 / 그린: 컷오프 / 블루: 유럽 -1% 기준선]")
             
         with graph_col:
             st.subheader("📊 Intensity Profile")
@@ -144,9 +159,9 @@ if uploaded_file is not None:
             mm_ax = [D * math.tan(math.radians((l_y - y) * deg_per_px)) for y in y_idx]
             
             ax.plot(mm_ax, profile, color='#ffffff', lw=2)
-            ax.axvline(x=0, color='#ff3b30', lw=1.5)
-            ax.axvline(x=-(D*0.01), color='#0a84ff', linestyle='--')
-            ax.axvline(x=mm_raw, color='#30d158', lw=2)
+            ax.axvline(x=0, color='#ff3b30', lw=1.5, label="Recognized")
+            ax.axvline(x=-(D*0.01), color='#0a84ff', linestyle='--', label="EU -1% Std")
+            ax.axvline(x=mm_raw, color='#30d158', lw=2, label="Laser Ref")
             
             ax.xaxis.set_major_locator(ticker.MultipleLocator(50))
             ax.grid(True, color='#555', lw=0.8)
@@ -157,31 +172,21 @@ if uploaded_file is not None:
             
         st.markdown("---")
         
-        # 🚨 [해결 핵심 로직] 북미/유럽 사양별 독립적 판정 알고리즘 분리 구현
-        # 1. 북미 사양 기준 판정 (컷오프선이 레이저선 정렬선[0mm] 대비 어떤지 판정)
-        if abs(mm_raw) <= 5.0: # 임의의 오차 허용값 예시 (필요시 조정 가능)
-            us_status = "정상 (OK)"
-            us_color = "#30d158" # 녹색
+        # 북미/유럽 사양 판정 루틴
+        if abs(mm_raw) <= 5.0:
+            us_status, us_color = "정상 (OK)", "#30d158"
         elif mm_raw > 5.0:
-            us_status = "높음 (UP)"
-            us_color = "#ff453a" # 적색
+            us_status, us_color = "높음 (UP)", "#ff453a"
         else:
-            us_status = "낮음 (DOWN)"
-            us_color = "#ff9f0a" # 주황색
+            us_status, us_color = "낮음 (DOWN)", "#ff9f0a"
 
-        # 2. 유럽 사양 기준 판정 (컷오프선이 하향 1% 정렬선[-D*0.01 mm] 대비 어떤지 판정)
-        # mm_std가 0보다 크면 1%선보다 위로 올라간 것이고, 작으면 아래로 내려간 것임
         if abs(mm_std) <= 5.0: 
-            eu_status = "정상 (OK)"
-            eu_color = "#0a84ff" # 청색
+            eu_status, eu_color = "정상 (OK)", "#0a84ff"
         elif mm_std > 5.0:
-            eu_status = "높음 (UP)"
-            eu_color = "#ff453a" # 적색
+            eu_status, eu_color = "높음 (UP)", "#ff453a"
         else:
-            eu_status = "낮음 (DOWN)"
-            eu_color = "#ff9f0a" # 주황색
+            eu_status, eu_color = "낮음 (DOWN)", "#ff9f0a"
         
-        # UI 레이아웃 화면에 개별 렌더링
         res_html = f"""
         <div style="background-color: #1e1e1e; padding: 20px; border-radius: 10px; border: 1px solid #444; text-align: left;">
             <div style="margin-bottom: 20px; padding-bottom: 15px; border-bottom: 1px solid #333;">
