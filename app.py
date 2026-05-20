@@ -37,7 +37,7 @@ zoom_sel = st.sidebar.selectbox(
 FOV = fov_options[zoom_sel]
 
 st.title("🔦 Headlamp Cut-off Analyzer")
-st.caption("모바일 터치 드래그 전용 최적화 컷오프 분석기")
+st.caption("터치 좌표 실시간 연동 안정화 루틴이 적용된 모바일 분석기")
 
 # 이미지 업로더
 uploaded_file = st.file_uploader("헤드램프 조사 이미지를 업로드하세요", type=["jpg", "jpeg", "png"])
@@ -50,16 +50,16 @@ if uploaded_file is not None:
     
     st.subheader("🔍 분석 영역(ROI) 설정")
     
-    # 세션 상태(Session State)를 활용해 좌표 설정 및 유지
-    if "roi_coords" not in st.session_state:
-        st.session_state.roi_coords = (int(W_img*0.35), int(H_img*0.35), int(W_img*0.65), int(H_img*0.65))
-        
-    x1, y1, x2, y2 = st.session_state.roi_coords
+    # 1. 영속적 세션 상태 공간 정의 및 초기화 보장
+    if "roi_x1" not in st.session_state:
+        st.session_state.roi_x1 = int(W_img * 0.35)
+        st.session_state.roi_y1 = int(H_img * 0.35)
+        st.session_state.roi_x2 = int(W_img * 0.65)
+        st.session_state.roi_y2 = int(H_img * 0.65)
     
-    # 📱 불필요한 기능(슬라이더 탭, 우측 가이드 패널)을 지우고 깔끔한 단일 터치 스크린만 배치
     st.info("💡 이미지 위의 노란색 테두리 상자를 손가락으로 드래그하거나 모서리를 잡고 늘려보세요.")
     
-    # 크롭 도구 단독 실행 (반응형 너비로 화면 초과 방지)
+    # 2. 터치 크롭 도구 실행
     cropped_box = st_cropper(
         origin_pil, 
         realtime_update=True, 
@@ -68,16 +68,23 @@ if uploaded_file is not None:
         return_type='box'
     )
     
-    # 방어 코드 및 세션 좌표 업데이트
+    # 3. 🚨 실시간 감지 연동 코어 로직
+    # 손가락을 움직여 새로운 상자 정보가 들어오면 즉시 세션 내부 영구 좌표를 덮어씁니다.
     if cropped_box is not None and isinstance(cropped_box, dict) and 'x' in cropped_box:
         tx1 = int(cropped_box['x'])
         ty1 = int(cropped_box['y'])
         tx2 = int(tx1 + cropped_box['w'])
         ty2 = int(ty1 + cropped_box['h'])
         
+        # 최소 크기(10픽셀) 이상 움직였을 때만 상태를 즉각 강제 변경하여 분석란에 전송
         if (tx2 - tx1) >= 10 and (ty2 - ty1) >= 10:
-            x1, y1, x2, y2 = tx1, ty1, tx2, ty2
-            st.session_state.roi_coords = (x1, y1, x2, y2)
+            st.session_state.roi_x1 = tx1
+            st.session_state.roi_y1 = ty1
+            st.session_state.roi_x2 = tx2
+            st.session_state.roi_y2 = ty2
+
+    # 최종 연산부에서 사용할 좌표는 무조건 세션에 락인된 값을 실시간 추적하도록 강제 고정
+    x1, y1, x2, y2 = st.session_state.roi_x1, st.session_state.roi_y1, st.session_state.roi_x2, st.session_state.roi_y2
 
     # OpenCV 프로세싱 진행
     img_b = cv2.cvtColor(np.array(origin_pil), cv2.COLOR_RGB2BGR)
