@@ -32,7 +32,7 @@ zoom_labels = list(IPHONE_15_PRO_MAX_SPECS.keys())
 zoom_sel = st.sidebar.selectbox("촬영 배율 선택", zoom_labels)
 FOV = IPHONE_15_PRO_MAX_SPECS[zoom_sel]
 
-# 🚨 [수정됨] 제목 줄바꿈 및 캡션 텍스트 변경
+# 제목 및 캡션 텍스트
 st.markdown("# 🔦 Headlamp<br>Cut-off Analyzer", unsafe_allow_html=True)
 st.caption("모바일 시인성 개선. 유럽/북미 사양별 위치 판정 분석")
 
@@ -106,8 +106,8 @@ if uploaded_file is not None:
         deg_per_px = FOV / H_img
         c_y = c_y_auto - (math.degrees(math.atan(manual_offset / D)) / deg_per_px)
 
-        # 레이저 주변 영역 마스킹 후 컷오프 검색
-        safe_margin = 30
+        # 🚨 [수정됨] 레이저 주변 영역 마스킹 (검색 제외 영역 30px -> 5px로 축소)
+        safe_margin = 5 
         roi_b = img_b[y1:y2, x1:x2]
         roi_g = np.clip(roi_b.astype(np.float32) * gain, 0, 255).astype(np.uint8)
         gray = cv2.cvtColor(roi_g, cv2.COLOR_BGR2GRAY)
