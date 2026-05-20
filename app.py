@@ -5,6 +5,7 @@ import numpy as np
 import math
 import io
 import base64  
+import streamlit.components.v1 as components  # 🚨 [수정] 올바른 컴포넌트 모듈 로드
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
 from PIL import Image, ImageOps
@@ -13,74 +14,39 @@ from streamlit_cropper import st_cropper
 # 페이지 기본 설정
 st.set_page_config(page_title="Headlamp Cut-off Analyzer", layout="wide")
 
-# 🚨 [수정 완료] 함수명에서 이모지를 제거하여 SyntaxError 해결
+# 🚨 [엔진 전면 재설계] iOS 크로스오리진(CORS) 및 페이지 유실을 방지하는 안전 다운로드 함수
 def ios_safe_download_button(label, data, file_name, mime_type):
     """
-    바이너리 데이터를 Base64로 인코딩하여 브라우저의 새 탭(window.open)에서 
-    Blob 객체로 다운로드하게 만들어 현재 Streamlit 페이지 유실을 무조건 방지합니다.
+    바이너리 데이터를 가볍고 안전한 Base64 Data URI로 변환한 뒤,
+    HTML5 <a> 태그의 target="_blank" 속성을 이용하여 아이폰의 '새 탭'에서 파일을 열어줍니다.
+    이 방식은 부모 창(Streamlit)의 세션을 100% 보존하면서 이탈을 막아줍니다.
     """
     b64 = base64.b64encode(data).decode()
-    button_id = f"btn_{file_name.replace('.', '_')}"
     
     custom_html = f"""
-    <button id="{button_id}" style="
+    <a href="data:{mime_type};base64,{b64}" download="{file_name}" target="_blank" style="
+        display: block;
         width: 100%;
         background-color: #262730;
         color: #ffffff;
-        padding: 0.5rem 0.75rem;
+        padding: 0.45rem 0.75rem;
         border-radius: 0.5rem;
         border: 1px solid rgba(250, 250, 250, 0.2);
         font-size: 14px;
         font-weight: 500;
-        cursor: pointer;
-        transition: background-color 0.16s ease-in-out;
-        margin-bottom: 10px;
+        text-decoration: none;
+        box-sizing: border-box;
         text-align: center;
+        margin-bottom: 8px;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        transition: background-color 0.1s ease-in-out;
     " onmouseover="this.style.backgroundColor='#3e404f'" onmouseout="this.style.backgroundColor='#262730'">
         {label}
-    </button>
-
-    <script>
-    document.getElementById('{button_id}').addEventListener('click', function() {{
-        const b64Data = '{b64}';
-        const contentType = '{mime_type}';
-        const sliceSize = 512;
-        
-        const byteCharacters = atob(b64Data);
-        const byteArrays = [];
-        for (let offset = 0; offset < byteCharacters.length; offset += sliceSize) {{
-            const slice = byteCharacters.slice(offset, offset + sliceSize);
-            const byteNumbers = new Array(slice.length);
-            for (let i = 0; i < slice.length; i++) {{
-                byteNumbers[i] = slice.charCodeAt(i);
-            }}
-            const byteArray = new Uint8Array(byteNumbers);
-            byteArrays.push(byteArray);
-        }}
-        const blob = new Blob(byteArrays, {{type: contentType}});
-        const blobUrl = URL.createObjectURL(blob);
-        
-        const newWindow = window.open();
-        if(newWindow) {{
-            const link = newWindow.document.createElement('a');
-            link.href = blobUrl;
-            link.download = '{file_name}';
-            newWindow.document.body.appendChild(link);
-            link.click();
-            setTimeout(() => {{
-                URL.revokeObjectURL(blobUrl);
-                newWindow.close();
-            }}, 250);
-        }} else {{
-            const link = window.parent.document.createElement('a');
-            link.href = blobUrl;
-            link.download = '{file_name}';
-            link.click();
-        }}
-    }});
-    </script>
+    </a>
     """
-    return st.sidebar.components.v1.html(custom_html, height=55)
+    # 사이드바 내부 컨텍스트에 안전하게 격리 바인딩
+    with st.sidebar:
+        components.html(custom_html, height=42)
 
 # 아이폰 15 프로 맥스 전용 하드웨어 광학 데이터베이스 (수직 FOV 기준)
 IPHONE_15_PRO_MAX_SPECS = {
@@ -160,7 +126,6 @@ if uploaded_file is not None:
     img_b = cv2.cvtColor(np.array(origin_pil), cv2.COLOR_RGB2BGR)
     orig_hsv = cv2.cvtColor(img_b, cv2.COLOR_BGR2HSV)
     
-    # vivid 녹색 및 적색 범위 마스킹
     vivid_mask = cv2.add(
         cv2.inRange(orig_hsv, np.array([35, 120, 100]), np.array([90, 255, 255])),
         cv2.add(
@@ -177,7 +142,6 @@ if uploaded_file is not None:
         deg_per_px = FOV / H_img
         c_y = c_y_auto - (math.degrees(math.atan(manual_offset / D)) / deg_per_px)
 
-        # 레이저 주변 영역 마스킹 (검색 제외 영역 30px 유지)
         safe_margin = 30 
         roi_b = img_b[y1:y2, x1:x2]
         roi_g = np.clip(roi_b.astype(np.float32) * gain, 0, 255).astype(np.uint8)
@@ -187,7 +151,6 @@ if uploaded_file is not None:
         grad[max(0, rel_c_y - safe_margin):min(roi_b.shape[0], rel_c_y + safe_margin), :] = 0
         l_y = np.argmax(np.mean(grad, axis=1)) + y1
         
-        # 수치 계산
         std_y = c_y + (math.degrees(math.atan(0.01)) / deg_per_px)
         mm_raw = D * math.tan(math.radians((c_y - l_y) * deg_per_px))
         mm_std = D * math.tan(math.radians((std_y - l_y) * deg_per_px))
@@ -203,15 +166,12 @@ if uploaded_file is not None:
             f_scale = 3.0 
             f_thick = 7
 
-            # 1. 레이저 정렬선
             cv2.line(disp_img, (0, int(c_y)), (W_img, int(c_y)), (0, 0, 255), 5)
             cv2.putText(disp_img, "LASER LINE", (50, int(c_y) - 30), font, f_scale, (0, 0, 255), f_thick)
 
-            # 2. 인식된 컷오프 라인
             cv2.line(disp_img, (0, int(l_y)), (W_img, int(l_y)), (0, 255, 0), 5)
             cv2.putText(disp_img, "CUT-OFF", (50, int(l_y) - 30), font, f_scale, (0, 255, 0), f_thick)
 
-            # 3. 유럽 사양 -1% 라인
             cv2.line(disp_img, (0, int(std_y)), (W_img, int(std_y)), (255, 0, 0), 4)
             cv2.putText(disp_img, "EU -1% Line", (W_img - 850, int(std_y) + 100), font, f_scale, (255, 0, 0), f_thick)
 
@@ -231,18 +191,15 @@ if uploaded_file is not None:
             mm_ax = [D * math.tan(math.radians((c_y - y) * deg_per_px)) for y in y_idx]
             
             ax.plot(mm_ax, profile, color='#ffffff', lw=2, label="Profile")
-            
             ax.axvline(x=0, color='#ff3b30', lw=2, label="Laser Line (Ref)")
             ax.axvline(x=mm_raw, color='#30d158', lw=2.5, label="Cut-off Line")
             ax.axvline(x=-(D*0.01), color='#0a84ff', linestyle='--', lw=2, label="EU -1% Line")
             
             ax.legend(loc='upper right', facecolor='#1e1e1e', edgecolor='white', labelcolor='white', fontsize='medium')
-            
             ax.xaxis.set_major_locator(ticker.MultipleLocator(50))
             ax.grid(True, color='#555', lw=0.8)
             ax.set_xlabel("Height (mm)", color='white')
             ax.set_ylabel("Brightness", color='white')
-            
             ax.tick_params(colors='white')
             plt.setp(ax.get_xticklabels(), rotation=45, ha="right")
             
@@ -250,7 +207,6 @@ if uploaded_file is not None:
             
         st.markdown("---")
         
-        # 순수 위치 판정
         if abs(mm_raw) <= 5.0:
             us_status, us_color = "정상 (OK)", "#30d158"
         elif mm_raw > 5.0:
@@ -281,7 +237,7 @@ if uploaded_file is not None:
         """
         st.html(res_html)
 
-        # 이미지 및 텍스트 데이터 바이너리 가공 추출
+        # 이미지 및 데이터 파일 인코딩 가공
         img_buffer = io.BytesIO()
         Image.fromarray(disp_img_rgb).save(img_buffer, format="PNG")
         img_bytes = img_buffer.getvalue()
@@ -301,7 +257,7 @@ if uploaded_file is not None:
         )
         report_bytes = report_text.encode('utf-8')
 
-        # 사이드바 영역에 다운로드 인터페이스 출력 (수정된 함수 적용)
+        # 사이드바 다운로드 트리거 패널 (수정된 안전 가상 브릿지 렌더링)
         st.sidebar.markdown("---")
         st.sidebar.subheader("📸 결과 데이터 다운로드")
         
