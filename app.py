@@ -32,8 +32,9 @@ zoom_labels = list(IPHONE_15_PRO_MAX_SPECS.keys())
 zoom_sel = st.sidebar.selectbox("촬영 배율 선택", zoom_labels)
 FOV = IPHONE_15_PRO_MAX_SPECS[zoom_sel]
 
-st.title("🔦 Headlamp Cut-off Analyzer")
-st.caption("모바일 시인성 개선 및 순수 UP/DOWN 위치 판정 분석기")
+# 🚨 [수정됨] 제목 줄바꿈 및 캡션 텍스트 변경
+st.markdown("# 🔦 Headlamp<br>Cut-off Analyzer", unsafe_allow_html=True)
+st.caption("모바일 시인성 개선. 유럽/북미 사양별 위치 판정 분석")
 
 # 이미지 업로더
 uploaded_file = st.file_uploader("헤드램프 조사 이미지를 업로드하세요", type=["jpg", "jpeg", "png"])
@@ -177,8 +178,7 @@ if uploaded_file is not None:
             
         st.markdown("---")
         
-        # 🚨 [수정됨] FAIL/PASS 삭제하고 각 기준선 대비 순수 위치 판정(UP/DOWN)으로 복구
-        # 허용 오차 5.0mm 이내는 정상, 그 외에는 명확히 UP/DOWN만 출력
+        # 각 기준선 대비 순수 위치 판정(UP/DOWN)
         if abs(mm_raw) <= 5.0:
             us_status, us_color = "정상 (OK)", "#30d158"
         elif mm_raw > 5.0:
