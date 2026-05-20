@@ -11,13 +11,12 @@ from streamlit_cropper import st_cropper
 # 페이지 기본 설정
 st.set_page_config(page_title="Headlamp Cut-off Analyzer", layout="wide")
 
-# 기기 FOV 데이터베이스 정의
-DEVICE_FOV_DB = {
-    "아이폰 15 프로 맥스": [58.0, 31.0, 12.5],
-    "아이폰 16 프로 맥스": [58.0, 31.0, 12.5],
-    "아이폰 17 프로 맥스": [58.0, 31.0, 11.0],
-    "갤럭시 S25 울트라": [58.1, 30.5, 11.2, 5.8],
-    "갤럭시 S26 울트라": [58.1, 30.5, 11.2, 5.8]
+# 🚨 [광학 스펙 정밀 교정] 아이폰 15 프로 맥스 전용 하드웨어 광학 데이터베이스 (수직 FOV 기준)
+# 1x 메인(24mm), 2x 크롭(48mm), 5x 망원(120mm 테트라프리즘) 사양 완벽 반영
+IPHONE_15_PRO_MAX_SPECS = {
+    "1x (Main - 24mm)": 57.3,
+    "2x (In-Sensor Crop - 48mm)": 30.3,
+    "5x (Telephoto - 120mm)": 12.4
 }
 
 # 제어 패널 UI (사이드바)
@@ -26,18 +25,18 @@ D = st.sidebar.number_input("거리 (mm)", value=10000, step=500)
 gain = st.sidebar.slider("밝기 Gain", 0.5, 3.0, 1.0, step=0.1)
 manual_offset = st.sidebar.number_input("수동 Offset (mm)", value=0.0, step=0.1)
 
-device_sel = st.sidebar.selectbox("기기 선택", list(DEVICE_FOV_DB.keys()))
-fov_options = DEVICE_FOV_DB[device_sel]
-zoom_labels = ["1x (Main)", "2x (Crop)", "3x (Tele)", "5x (Tele)", "10x (Tele)"]
-zoom_sel = st.sidebar.selectbox(
-    "배율 선택", 
-    range(len(fov_options)), 
-    format_func=lambda x: zoom_labels[x] if x < len(zoom_labels) else f"{x+1}x"
-)
-FOV = fov_options[zoom_sel]
+# 📱 촬영 기기 사양 고정 및 배율 메뉴 개편
+st.sidebar.markdown("---")
+st.sidebar.subheader("📱 촬영 기기 사양")
+st.sidebar.info("기기: iPhone 15 Pro Max")
+
+# 사용자가 직관적으로 선택할 수 있도록 1배, 2배, 5배 광학 스펙만 바인딩
+zoom_labels = list(IPHONE_15_PRO_MAX_SPECS.keys())
+zoom_sel = st.sidebar.selectbox("촬영 배율 선택", zoom_labels)
+FOV = IPHONE_15_PRO_MAX_SPECS[zoom_sel] # 선택한 배율의 정밀 수직 FOV 적용
 
 st.title("🔦 Headlamp Cut-off Analyzer")
-st.caption("터치 좌표 실시간 연동이 완벽히 해결된 단일 화면 분석기")
+st.caption("iPhone 15 Pro Max 광학 렌즈 및 하드웨어 센서 스펙 맞춤형 정밀 분석기")
 
 # 이미지 업로더
 uploaded_file = st.file_uploader("헤드램프 조사 이미지를 업로드하세요", type=["jpg", "jpeg", "png"])
@@ -69,8 +68,7 @@ if uploaded_file is not None:
         key="headlamp_cropper"
     )
     
-    # 🚨 [해결 핵심 코드] 반환되는 딕셔너리의 Key 이름(x/left, width/w) 호환성 완벽 대응
-    # 에러 없이 안전하게 값을 추출하여 즉시 세션에 반영합니다.
+    # 반환되는 딕셔너리의 Key 이름(x/left, width/w) 호환성 연동
     if cropped_box and isinstance(cropped_box, dict):
         tx1 = int(cropped_box.get('x', cropped_box.get('left', st.session_state.roi_x1)))
         ty1 = int(cropped_box.get('y', cropped_box.get('top', st.session_state.roi_y1)))
@@ -81,18 +79,20 @@ if uploaded_file is not None:
         tx2 = tx1 + tw
         ty2 = ty1 + th
         
-        # 유효 크기(10픽셀 이상)일 경우에만 세션 갱신
         if tw >= 10 and th >= 10:
-            st.session_state.roi_x1 = tx1
-            st.session_state.roi_y1 = ty1
-            st.session_state.roi_x2 = tx2
-            st.session_state.roi_y2 = ty2
+            if (st.session_state.roi_x1 != tx1 or 
+                st.session_state.roi_y1 != ty1 or 
+                st.session_state.roi_x2 != tx2 or 
+                st.session_state.roi_y2 != ty2):
+                
+                st.session_state.roi_x1 = tx1
+                st.session_state.roi_y1 = ty1
+                st.session_state.roi_x2 = tx2
+                st.session_state.roi_y2 = ty2
+                st.rerun()
 
-    # 연산부 변수 할당 (현재 실행 사이클에서 즉시 반영됨)
-    x1 = st.session_state.roi_x1
-    y1 = st.session_state.roi_y1
-    x2 = st.session_state.roi_x2
-    y2 = st.session_state.roi_y2
+    # 연산부 변수 할당
+    x1, y1, x2, y2 = st.session_state.roi_x1, st.session_state.roi_y1, st.session_state.roi_x2, st.session_state.roi_y2
 
     # OpenCV 프로세싱 진행
     img_b = cv2.cvtColor(np.array(origin_pil), cv2.COLOR_RGB2BGR)
@@ -116,6 +116,7 @@ if uploaded_file is not None:
     if np.max(np.sum(m, axis=1)) > 50*255:
         l_y = np.argmax(np.sum(m, axis=1)) + y1
         
+        # 🚨 정밀 교정된 FOV 데이터 기반 픽셀당 도수(Degree) 연산 실행
         deg_per_px = FOV / H_img
         std_y = l_y + (math.degrees(math.atan(0.01)) / deg_per_px)
         
@@ -139,8 +140,6 @@ if uploaded_file is not None:
         with view_col:
             st.subheader("🖼️ 분석 결과 이미지")
             disp_img = img_b.copy()
-            
-            # 분석 란에 유저가 선택한 상자(노란색) 및 컷오프(녹색), 레이저(빨간색) 그리기
             cv2.rectangle(disp_img, (x1, y1), (x2, y2), (0, 221, 255), 3)
             cv2.line(disp_img, (x1, int(l_y)), (x2, int(l_y)), (0, 0, 255), 3)
             cv2.line(disp_img, (x1, int(c_y)), (x2, int(c_y)), (0, 255, 0), 4)
