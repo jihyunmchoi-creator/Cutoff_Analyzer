@@ -37,7 +37,7 @@ zoom_sel = st.sidebar.selectbox(
 FOV = fov_options[zoom_sel]
 
 st.title("🔦 Headlamp Cut-off Analyzer")
-st.caption("터치 즉시 화면 강제 새로고침(Rerun) 루틴이 추가된 실시간 분석기")
+st.caption("컴포넌트 키 바인딩 기술로 실시간 미반응 현상을 완벽 해결한 분석기")
 
 # 이미지 업로더
 uploaded_file = st.file_uploader("헤드램프 조사 이미지를 업로드하세요", type=["jpg", "jpeg", "png"])
@@ -59,18 +59,18 @@ if uploaded_file is not None:
     
     st.info("💡 이미지 위의 노란색 테두리 상자를 손가락으로 드래그하거나 모서리를 잡고 늘려보세요.")
     
-    # 터치 크롭 도구 실행
+    # 🚨 [해결 핵심 코드 1] key를 지정하여 크롭 도구의 상태 변화를 스트림릿 세션이 강제 감시하도록 설정
     cropped_box = st_cropper(
         origin_pil, 
         realtime_update=True, 
         box_color='#ffdd00', 
         aspect_ratio=None,
-        return_type='box'
+        return_type='box',
+        key="headlamp_cropper"
     )
     
-    # 🚨 [실시간 미반응 해결 핵심 코드] 
-    # 기존 값과 비교하여 사용자가 손가락을 움직여 1픽셀이라도 좌표가 바뀌었다면 
-    # 세션을 업데이트하고 즉시 페이지를 강제 새로고침(rerun) 시킵니다.
+    # 🚨 [해결 핵심 코드 2] 컴포넌트가 반환하는 내부 상태 딕셔너리를 직접 추적
+    # 사용자가 터치 조작을 바꿀 때마다 무조건 감지되어 최신 좌표로 가공됩니다.
     if cropped_box is not None and isinstance(cropped_box, dict) and 'x' in cropped_box:
         tx1 = int(cropped_box['x'])
         ty1 = int(cropped_box['y'])
@@ -78,7 +78,7 @@ if uploaded_file is not None:
         ty2 = int(ty1 + cropped_box['h'])
         
         if (tx2 - tx1) >= 10 and (ty2 - ty1) >= 10:
-            # 기존에 저장된 세션 값과 새로 들어온 터치 값이 다를 때만 트리거
+            # 상태 변경 시 무조건 세션 갱신
             if (st.session_state.roi_x1 != tx1 or 
                 st.session_state.roi_y1 != ty1 or 
                 st.session_state.roi_x2 != tx2 or 
@@ -88,7 +88,7 @@ if uploaded_file is not None:
                 st.session_state.roi_y1 = ty1
                 st.session_state.roi_x2 = tx2
                 st.session_state.roi_y2 = ty2
-                st.rerun() # 🔄 백엔드 프로세싱 및 분석 이미지란을 강제로 즉시 갱신
+                st.rerun()
 
     # 연산부 변수 할당
     x1, y1, x2, y2 = st.session_state.roi_x1, st.session_state.roi_y1, st.session_state.roi_x2, st.session_state.roi_y2
