@@ -5,7 +5,7 @@ import numpy as np
 import math
 import io
 import base64  
-import streamlit.components.v1 as components  # 🚨 [수정] 올바른 컴포넌트 모듈 로드
+import streamlit.components.v1 as components  
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
 from PIL import Image, ImageOps
@@ -14,15 +14,9 @@ from streamlit_cropper import st_cropper
 # 페이지 기본 설정
 st.set_page_config(page_title="Headlamp Cut-off Analyzer", layout="wide")
 
-# 🚨 [엔진 전면 재설계] iOS 크로스오리진(CORS) 및 페이지 유실을 방지하는 안전 다운로드 함수
+# iOS 크로스오리진(CORS) 및 페이지 유실을 방지하는 안전 다운로드 함수
 def ios_safe_download_button(label, data, file_name, mime_type):
-    """
-    바이너리 데이터를 가볍고 안전한 Base64 Data URI로 변환한 뒤,
-    HTML5 <a> 태그의 target="_blank" 속성을 이용하여 아이폰의 '새 탭'에서 파일을 열어줍니다.
-    이 방식은 부모 창(Streamlit)의 세션을 100% 보존하면서 이탈을 막아줍니다.
-    """
     b64 = base64.b64encode(data).decode()
-    
     custom_html = f"""
     <a href="data:{mime_type};base64,{b64}" download="{file_name}" target="_blank" style="
         display: block;
@@ -44,7 +38,6 @@ def ios_safe_download_button(label, data, file_name, mime_type):
         {label}
     </a>
     """
-    # 사이드바 내부 컨텍스트에 안전하게 격리 바인딩
     with st.sidebar:
         components.html(custom_html, height=42)
 
@@ -57,6 +50,18 @@ IPHONE_15_PRO_MAX_SPECS = {
 
 # 제어 패널 UI (사이드바 기본 레이아웃)
 st.sidebar.title("🎛️ 제어 패널")
+
+# 🚨 [핵심 추가] 모바일 상하 스크롤 안정화를 위한 ROI 가동 잠금 토글 스위치
+st.sidebar.subheader("🔒 모바일 스크롤 잠금 해제")
+roi_edit_mode = st.sidebar.toggle("🔍 ROI 영역 수정 모드 활성화", value=False)
+
+if not roi_edit_mode:
+    st.sidebar.caption("💡 수정 모드가 꺼져 있을 때는 이미지 영역을 드래그해도 화면 스크롤이 자유롭습니다.")
+else:
+    st.sidebar.caption("⚠️ 수정 중에는 모바일 스크롤이 제한될 수 있습니다. 조절 후 스위치를 꺼주세요.")
+
+st.sidebar.markdown("---")
+
 D = st.sidebar.number_input("거리 (mm)", value=10000, step=500)
 gain = st.sidebar.slider("밝기 Gain", 0.5, 3.0, 1.0, step=0.1)
 manual_offset = st.sidebar.number_input("수동 Offset (mm)", value=0.0, step=0.1)
@@ -83,42 +88,57 @@ if uploaded_file is not None:
     
     st.subheader("🔍 분석 영역(ROI) 설정")
     
+    # 세션 상태 고정 초기화
     if "roi_x1" not in st.session_state:
         st.session_state.roi_x1 = int(W_img * 0.35)
         st.session_state.roi_y1 = int(H_img * 0.35)
         st.session_state.roi_x2 = int(W_img * 0.65)
         st.session_state.roi_y2 = int(H_img * 0.65)
     
-    st.info("💡 이미지 위의 노란색 테두리 상자를 손가락으로 드래그하거나 모서리를 잡고 늘려보세요.")
-    
-    cropped_box = st_cropper(
-        origin_pil, 
-        realtime_update=True, 
-        box_color='#ffdd00', 
-        aspect_ratio=None,
-        return_type='box',
-        key="headlamp_cropper"
-    )
-    
-    if cropped_box and isinstance(cropped_box, dict):
-        tx1 = int(cropped_box.get('x', cropped_box.get('left', st.session_state.roi_x1)))
-        ty1 = int(cropped_box.get('y', cropped_box.get('top', st.session_state.roi_y1)))
-        tw = int(cropped_box.get('width', cropped_box.get('w', st.session_state.roi_x2 - st.session_state.roi_x1)))
-        th = int(cropped_box.get('height', cropped_box.get('h', st.session_state.roi_y2 - st.session_state.roi_y1)))
-        tx2 = tx1 + tw
-        ty2 = ty1 + th
+    # 🚨 [핵심 변경] 토글 상태에 따른 렌더링 분기
+    if roi_edit_mode:
+        st.info("🎯 [ROI 수정 모드] 이미지 위의 노란 상자를 움직여 분석 영역을 변경하세요.")
+        cropped_box = st_cropper(
+            origin_pil, 
+            realtime_update=True, 
+            box_color='#ffdd00', 
+            aspect_ratio=None,
+            return_type='box',
+            key="headlamp_cropper"
+        )
         
-        if tw >= 10 and th >= 10:
-            if (st.session_state.roi_x1 != tx1 or 
-                st.session_state.roi_y1 != ty1 or 
-                st.session_state.roi_x2 != tx2 or 
-                st.session_state.roi_y2 != ty2):
-                
-                st.session_state.roi_x1 = tx1
-                st.session_state.roi_y1 = ty1
-                st.session_state.roi_x2 = tx2
-                st.session_state.roi_y2 = ty2
-                st.rerun()
+        if cropped_box and isinstance(cropped_box, dict):
+            tx1 = int(cropped_box.get('x', cropped_box.get('left', st.session_state.roi_x1)))
+            ty1 = int(cropped_box.get('y', cropped_box.get('top', st.session_state.roi_y1)))
+            tw = int(cropped_box.get('width', cropped_box.get('w', st.session_state.roi_x2 - st.session_state.roi_x1)))
+            th = int(cropped_box.get('height', cropped_box.get('h', st.session_state.roi_y2 - st.session_state.roi_y1)))
+            tx2 = tx1 + tw
+            ty2 = ty1 + th
+            
+            if tw >= 10 and th >= 10:
+                if (st.session_state.roi_x1 != tx1 or 
+                    st.session_state.roi_y1 != ty1 or 
+                    st.session_state.roi_x2 != tx2 or 
+                    st.session_state.roi_y2 != ty2):
+                    
+                    st.session_state.roi_x1 = tx1
+                    st.session_state.roi_y1 = ty1
+                    st.session_state.roi_x2 = tx2
+                    st.session_state.roi_y2 = ty2
+                    st.rerun()
+    else:
+        # 🚨 [수정 모드가 껐을 때] 일반 정적 이미지를 노출시켜 터치 이벤트를 완전히 무력화(순정 스크롤 보장)
+        st.success("📱 [정식 스크롤 모드] 화면을 자유롭게 위아래로 내리실 수 있습니다. 영역 수정을 원하시면 사이드바의 스위치를 켜세요.")
+        
+        # 현재 지정된 ROI를 정적 이미지 위에 미리보기용으로 가이드라인 매핑
+        preview_img = np.array(origin_pil).copy()
+        cv2.rectangle(
+            preview_img, 
+            (st.session_state.roi_x1, st.session_state.roi_y1), 
+            (st.session_state.roi_x2, st.session_state.roi_y2), 
+            (255, 221, 0), 6
+        )
+        st.image(preview_img, use_container_width=True)
 
     x1, y1, x2, y2 = st.session_state.roi_x1, st.session_state.roi_y1, st.session_state.roi_x2, st.session_state.roi_y2
 
@@ -257,7 +277,7 @@ if uploaded_file is not None:
         )
         report_bytes = report_text.encode('utf-8')
 
-        # 사이드바 다운로드 트리거 패널 (수정된 안전 가상 브릿지 렌더링)
+        # 사이드바 다운로드 트리거 패널
         st.sidebar.markdown("---")
         st.sidebar.subheader("📸 결과 데이터 다운로드")
         
