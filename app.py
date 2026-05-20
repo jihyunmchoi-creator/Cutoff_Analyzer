@@ -4,7 +4,7 @@ import cv2
 import numpy as np
 import math
 import io
-import base64  # 🚨 자바스크립트 전달을 위해 b64 인코딩 라이브러리 추가
+import base64  
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
 from PIL import Image, ImageOps
@@ -13,8 +13,8 @@ from streamlit_cropper import st_cropper
 # 페이지 기본 설정
 st.set_page_config(page_title="Headlamp Cut-off Analyzer", layout="wide")
 
-# 🚨 [핵심 수정] 아이폰에서 현재 페이지가 튕기는 현상을 막기 위한 새 탭 다운로드 자바스크립트 함수
-def 🖥️_safe_download_button(label, data, file_name, mime_type):
+# 🚨 [수정 완료] 함수명에서 이모지를 제거하여 SyntaxError 해결
+def ios_safe_download_button(label, data, file_name, mime_type):
     """
     바이너리 데이터를 Base64로 인코딩하여 브라우저의 새 탭(window.open)에서 
     Blob 객체로 다운로드하게 만들어 현재 Streamlit 페이지 유실을 무조건 방지합니다.
@@ -46,7 +46,6 @@ def 🖥️_safe_download_button(label, data, file_name, mime_type):
         const contentType = '{mime_type}';
         const sliceSize = 512;
         
-        // Base64를 Blob 객체로 정밀 복원
         const byteCharacters = atob(b64Data);
         const byteArrays = [];
         for (let offset = 0; offset < byteCharacters.length; offset += sliceSize) {{
@@ -61,7 +60,6 @@ def 🖥️_safe_download_button(label, data, file_name, mime_type):
         const blob = new Blob(byteArrays, {{type: contentType}});
         const blobUrl = URL.createObjectURL(blob);
         
-        // 🚨 핵심: 부모창을 건드리지 않고 새 탭/새 창을 강제로 열어 파일 처리 후 세션 분리
         const newWindow = window.open();
         if(newWindow) {{
             const link = newWindow.document.createElement('a');
@@ -69,13 +67,11 @@ def 🖥️_safe_download_button(label, data, file_name, mime_type):
             link.download = '{file_name}';
             newWindow.document.body.appendChild(link);
             link.click();
-            // 다운로드 트리거 후 새 탭 자동 닫기 시도 (iOS 사파리 분할 바인딩 해제)
             setTimeout(() => {{
                 URL.revokeObjectURL(blobUrl);
                 newWindow.close();
             }}, 250);
         }} else {{
-            // 팝업 차단이 걸려있을 경우의 예외 폴백 처리
             const link = window.parent.document.createElement('a');
             link.href = blobUrl;
             link.download = '{file_name}';
@@ -305,13 +301,13 @@ if uploaded_file is not None:
         )
         report_bytes = report_text.encode('utf-8')
 
-        # 🚨 [수정 적용] 사이드바 렌더링을 특수 HTML 설계 버튼으로 대체 (새 탭 우회)
+        # 사이드바 영역에 다운로드 인터페이스 출력 (수정된 함수 적용)
         st.sidebar.markdown("---")
         st.sidebar.subheader("📸 결과 데이터 다운로드")
         
-        🖥️_safe_download_button("🖼️ 분석 완료 이미지 받기", img_bytes, "headlamp_analysis.png", "image/png")
-        🖥️_safe_download_button("📊 그래프 프로필 받기", fig_bytes, "intensity_profile.png", "image/png")
-        🖥️_safe_download_button("📋 판정 결과 레포트 받기", report_bytes, "judgment_report.txt", "text/plain")
+        ios_safe_download_button("🖼️ 분석 완료 이미지 받기", img_bytes, "headlamp_analysis.png", "image/png")
+        ios_safe_download_button("📊 그래프 프로필 받기", fig_bytes, "intensity_profile.png", "image/png")
+        ios_safe_download_button("📋 판정 결과 레포트 받기", report_bytes, "judgment_report.txt", "text/plain")
 
     else:
         st.sidebar.markdown("---")
