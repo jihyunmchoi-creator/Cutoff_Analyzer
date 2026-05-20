@@ -37,7 +37,7 @@ zoom_sel = st.sidebar.selectbox(
 FOV = fov_options[zoom_sel]
 
 st.title("🔦 Headlamp Cut-off Analyzer")
-st.caption("우측 스크롤 전용 패널 공간이 확보된 모바일 최적화 컷오프 분석기")
+st.caption("모바일 터치 드래그 전용 최적화 컷오프 분석기")
 
 # 이미지 업로더
 uploaded_file = st.file_uploader("헤드램프 조사 이미지를 업로드하세요", type=["jpg", "jpeg", "png"])
@@ -50,62 +50,34 @@ if uploaded_file is not None:
     
     st.subheader("🔍 분석 영역(ROI) 설정")
     
-    # 세션 상태(Session State)를 활용해 초기 좌표 설정 및 유지
+    # 세션 상태(Session State)를 활용해 좌표 설정 및 유지
     if "roi_coords" not in st.session_state:
         st.session_state.roi_coords = (int(W_img*0.35), int(H_img*0.35), int(W_img*0.65), int(H_img*0.65))
         
     x1, y1, x2, y2 = st.session_state.roi_coords
     
-    # 📱 [구조 변경] 메인 콘텐츠 구역(80%)과 우측 스크롤 전용 패널 구역(20%) 분할
-    main_layout_col, scroll_bar_col = st.columns([4, 1])
+    # 📱 불필요한 기능(슬라이더 탭, 우측 가이드 패널)을 지우고 깔끔한 단일 터치 스크린만 배치
+    st.info("💡 이미지 위의 노란색 테두리 상자를 손가락으로 드래그하거나 모서리를 잡고 늘려보세요.")
     
-    with main_layout_col:
-        # 조작 모드 탭 분리
-        mode_tab1, mode_tab2 = st.tabs(["📱 모바일 터치 드래그 조작", "🎛️ 정밀 슬라이더 조작"])
+    # 크롭 도구 단독 실행 (반응형 너비로 화면 초과 방지)
+    cropped_box = st_cropper(
+        origin_pil, 
+        realtime_update=True, 
+        box_color='#ffdd00', 
+        aspect_ratio=None,
+        return_type='box'
+    )
+    
+    # 방어 코드 및 세션 좌표 업데이트
+    if cropped_box is not None and isinstance(cropped_box, dict) and 'x' in cropped_box:
+        tx1 = int(cropped_box['x'])
+        ty1 = int(cropped_box['y'])
+        tx2 = int(tx1 + cropped_box['w'])
+        ty2 = int(ty1 + cropped_box['h'])
         
-        with mode_tab1:
-            st.info("💡 터치 조작 중 화면 이동이 필요하면 우측의 [📜 스크롤 패널] 영역을 잡고 내려주세요.")
-            
-            # 크롭 도구 실행 (문제의 st.markdown 이동 버튼은 완전히 삭제됨)
-            cropped_box = st_cropper(
-                origin_pil, 
-                realtime_update=True, 
-                box_color='#ffdd00', 
-                aspect_ratio=None,
-                return_type='box'
-            )
-            
-            # 방어 코드 및 세션 좌표 업데이트
-            if cropped_box is not None and isinstance(cropped_box, dict) and 'x' in cropped_box:
-                tx1 = int(cropped_box['x'])
-                ty1 = int(cropped_box['y'])
-                tx2 = int(tx1 + cropped_box['w'])
-                ty2 = int(ty1 + cropped_box['h'])
-                
-                if (tx2 - tx1) >= 10 and (ty2 - ty1) >= 10:
-                    x1, y1, x2, y2 = tx1, ty1, tx2, ty2
-                    st.session_state.roi_coords = (x1, y1, x2, y2)
-
-        with mode_tab2:
-            st.info("💡 1픽셀 단위의 정밀한 세부 조정이 필요할 때 슬라이더 바를 조작하세요.")
-            col1, col2 = st.columns(2)
-            with col1:
-                roi_y = st.slider("Vertical ROI (Y축 범위)", 0, H_img, (y1, y2), key="slider_y_val")
-            with col2:
-                roi_x = st.slider("Horizontal ROI (X축 범위)", 0, W_img, (x1, x2), key="slider_x_val")
-                
-            x1, y1, x2, y2 = roi_x[0], roi_y[0], roi_x[1], roi_y[1]
+        if (tx2 - tx1) >= 10 and (ty2 - ty1) >= 10:
+            x1, y1, x2, y2 = tx1, ty1, tx2, ty2
             st.session_state.roi_coords = (x1, y1, x2, y2)
-
-    # 📱 우측 고정 스크롤 패널 구성 (이미지에 갇혔을 때 탈출하는 가이드 바 역할)
-    with scroll_bar_col:
-        st.write(" ")
-        st.write(" ")
-        st.success("📜 스크롤 패널")
-        st.caption("손가락으로 이 구역을 쓸어내리면 화면이 상하로 스크롤됩니다.")
-        # 빈 공간을 확보하여 아이폰 손가락 터치 영역 극대화
-        for _ in range(12):
-            st.write("↕️")
 
     # OpenCV 프로세싱 진행
     img_b = cv2.cvtColor(np.array(origin_pil), cv2.COLOR_RGB2BGR)
@@ -146,7 +118,7 @@ if uploaded_file is not None:
         
         st.markdown("---")
         
-        # 결과 시각화 레이아웃
+        # 결과 시각화 레이아웃 (반응형 2칼럼 배치)
         view_col, graph_col = st.columns([1, 1])
         
         with view_col:
