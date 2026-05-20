@@ -3,7 +3,8 @@ import streamlit as st
 import cv2
 import numpy as np
 import math
-import io  # 🚨 바이너리 버퍼 처리를 위해 추가
+import io
+import base64  # 🚨 자바스크립트 전달을 위해 b64 인코딩 라이브러리 추가
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
 from PIL import Image, ImageOps
@@ -11,6 +12,79 @@ from streamlit_cropper import st_cropper
 
 # 페이지 기본 설정
 st.set_page_config(page_title="Headlamp Cut-off Analyzer", layout="wide")
+
+# 🚨 [핵심 수정] 아이폰에서 현재 페이지가 튕기는 현상을 막기 위한 새 탭 다운로드 자바스크립트 함수
+def 🖥️_safe_download_button(label, data, file_name, mime_type):
+    """
+    바이너리 데이터를 Base64로 인코딩하여 브라우저의 새 탭(window.open)에서 
+    Blob 객체로 다운로드하게 만들어 현재 Streamlit 페이지 유실을 무조건 방지합니다.
+    """
+    b64 = base64.b64encode(data).decode()
+    button_id = f"btn_{file_name.replace('.', '_')}"
+    
+    custom_html = f"""
+    <button id="{button_id}" style="
+        width: 100%;
+        background-color: #262730;
+        color: #ffffff;
+        padding: 0.5rem 0.75rem;
+        border-radius: 0.5rem;
+        border: 1px solid rgba(250, 250, 250, 0.2);
+        font-size: 14px;
+        font-weight: 500;
+        cursor: pointer;
+        transition: background-color 0.16s ease-in-out;
+        margin-bottom: 10px;
+        text-align: center;
+    " onmouseover="this.style.backgroundColor='#3e404f'" onmouseout="this.style.backgroundColor='#262730'">
+        {label}
+    </button>
+
+    <script>
+    document.getElementById('{button_id}').addEventListener('click', function() {{
+        const b64Data = '{b64}';
+        const contentType = '{mime_type}';
+        const sliceSize = 512;
+        
+        // Base64를 Blob 객체로 정밀 복원
+        const byteCharacters = atob(b64Data);
+        const byteArrays = [];
+        for (let offset = 0; offset < byteCharacters.length; offset += sliceSize) {{
+            const slice = byteCharacters.slice(offset, offset + sliceSize);
+            const byteNumbers = new Array(slice.length);
+            for (let i = 0; i < slice.length; i++) {{
+                byteNumbers[i] = slice.charCodeAt(i);
+            }}
+            const byteArray = new Uint8Array(byteNumbers);
+            byteArrays.push(byteArray);
+        }}
+        const blob = new Blob(byteArrays, {{type: contentType}});
+        const blobUrl = URL.createObjectURL(blob);
+        
+        // 🚨 핵심: 부모창을 건드리지 않고 새 탭/새 창을 강제로 열어 파일 처리 후 세션 분리
+        const newWindow = window.open();
+        if(newWindow) {{
+            const link = newWindow.document.createElement('a');
+            link.href = blobUrl;
+            link.download = '{file_name}';
+            newWindow.document.body.appendChild(link);
+            link.click();
+            // 다운로드 트리거 후 새 탭 자동 닫기 시도 (iOS 사파리 분할 바인딩 해제)
+            setTimeout(() => {{
+                URL.revokeObjectURL(blobUrl);
+                newWindow.close();
+            }}, 250);
+        }} else {{
+            // 팝업 차단이 걸려있을 경우의 예외 폴백 처리
+            const link = window.parent.document.createElement('a');
+            link.href = blobUrl;
+            link.download = '{file_name}';
+            link.click();
+        }}
+    }});
+    </script>
+    """
+    return st.sidebar.components.v1.html(custom_html, height=55)
 
 # 아이폰 15 프로 맥스 전용 하드웨어 광학 데이터베이스 (수직 FOV 기준)
 IPHONE_15_PRO_MAX_SPECS = {
@@ -133,19 +207,18 @@ if uploaded_file is not None:
             f_scale = 3.0 
             f_thick = 7
 
-            # 1. 레이저 정렬선 (빨간색)
+            # 1. 레이저 정렬선
             cv2.line(disp_img, (0, int(c_y)), (W_img, int(c_y)), (0, 0, 255), 5)
             cv2.putText(disp_img, "LASER LINE", (50, int(c_y) - 30), font, f_scale, (0, 0, 255), f_thick)
 
-            # 2. 인식된 컷오프 라인 (초록색)
+            # 2. 인식된 컷오프 라인
             cv2.line(disp_img, (0, int(l_y)), (W_img, int(l_y)), (0, 255, 0), 5)
             cv2.putText(disp_img, "CUT-OFF", (50, int(l_y) - 30), font, f_scale, (0, 255, 0), f_thick)
 
-            # 3. 유럽 사양 -1% 하향 가상 라인 (파란색)
+            # 3. 유럽 사양 -1% 라인
             cv2.line(disp_img, (0, int(std_y)), (W_img, int(std_y)), (255, 0, 0), 4)
             cv2.putText(disp_img, "EU -1% Line", (W_img - 850, int(std_y) + 100), font, f_scale, (255, 0, 0), f_thick)
 
-            # ROI 박스 (하늘색)
             cv2.rectangle(disp_img, (x1, y1), (x2, y2), (255, 255, 0), 3)
             
             disp_img_rgb = cv2.cvtColor(disp_img, cv2.COLOR_BGR2RGB)
@@ -181,7 +254,7 @@ if uploaded_file is not None:
             
         st.markdown("---")
         
-        # 각 기준선 대비 순수 위치 판정(UP/DOWN)
+        # 순수 위치 판정
         if abs(mm_raw) <= 5.0:
             us_status, us_color = "정상 (OK)", "#30d158"
         elif mm_raw > 5.0:
@@ -212,54 +285,34 @@ if uploaded_file is not None:
         """
         st.html(res_html)
 
-        # 🚨 [완전 재설계] iOS 호환용 순정 파이썬 데이터 추출 가공 세션
-        # 1. 결과 이미지 바이트 변환
+        # 이미지 및 텍스트 데이터 바이너리 가공 추출
         img_buffer = io.BytesIO()
         Image.fromarray(disp_img_rgb).save(img_buffer, format="PNG")
         img_bytes = img_buffer.getvalue()
 
-        # 2. 그래프 이미지 바이트 변환
         fig_buffer = io.BytesIO()
         fig.savefig(fig_buffer, format="PNG", bbox_inches='tight', facecolor=fig.get_facecolor())
         fig_bytes = fig_buffer.getvalue()
 
-        # 3. 판정 결과 텍스트 파일 구성
         report_text = (
             f"[Headlamp Cut-off Analyzer 분석 결과 레포트]\n\n"
-            f"🇺🇸 북미 사양 사양 결과:\n"
+            f"🇺🇸 북미 사양 결과:\n"
             f" - 오차값: {mm_raw:+.1f} mm ({pct_raw:+.2f}%)\n"
             f" - 최종 판정: {us_status}\n\n"
-            f"🇪🇺 유럽 사양 사양 결과:\n"
+            f"🇪🇺 유럽 사양 결과:\n"
             f" - 오차값: {mm_std:+.1f} mm ({pct_std:+.2f}%)\n"
             f" - 최종 판정: {eu_status}\n"
         )
         report_bytes = report_text.encode('utf-8')
 
-        # 사이드바 영역에 다운로드 인터페이스 출력
+        # 🚨 [수정 적용] 사이드바 렌더링을 특수 HTML 설계 버튼으로 대체 (새 탭 우회)
         st.sidebar.markdown("---")
         st.sidebar.subheader("📸 결과 데이터 다운로드")
         
-        st.sidebar.download_button(
-            label="🖼️ 분석 완료 이미지 받기",
-            data=img_bytes,
-            file_name="headlamp_analysis.png",
-            mime="image/png",
-            use_container_width=True
-        )
-        st.sidebar.download_button(
-            label="📊 그래프 프로필 받기",
-            data=fig_bytes,
-            file_name="intensity_profile.png",
-            mime="image/png",
-            use_container_width=True
-        )
-        st.sidebar.download_button(
-            label="📋 판정 결과 레포트 받기",
-            data=report_bytes,
-            file_name="judgment_report.txt",
-            mime="text/plain",
-            use_container_width=True
-        )
+        🖥️_safe_download_button("🖼️ 분석 완료 이미지 받기", img_bytes, "headlamp_analysis.png", "image/png")
+        🖥️_safe_download_button("📊 그래프 프로필 받기", fig_bytes, "intensity_profile.png", "image/png")
+        🖥️_safe_download_button("📋 판정 결과 레포트 받기", report_bytes, "judgment_report.txt", "text/plain")
+
     else:
         st.sidebar.markdown("---")
         st.sidebar.warning("⚠️ 이미지가 올바르게 분석되지 않아 다운로드 버튼을 활성화할 수 없습니다.")
