@@ -106,7 +106,7 @@ if uploaded_file is not None:
         deg_per_px = FOV / H_img
         c_y = c_y_auto - (math.degrees(math.atan(manual_offset / D)) / deg_per_px)
 
-        # 🚨 [수정됨] 레이저 주변 영역 마스킹 (검색 제외 영역 30px -> 5px로 축소)
+        # 레이저 주변 영역 마스킹 (검색 제외 영역 5px 유지)
         safe_margin = 5 
         roi_b = img_b[y1:y2, x1:x2]
         roi_g = np.clip(roi_b.astype(np.float32) * gain, 0, 255).astype(np.uint8)
@@ -169,11 +169,16 @@ if uploaded_file is not None:
             
             ax.legend(loc='upper right', facecolor='#1e1e1e', edgecolor='white', labelcolor='white', fontsize='medium')
             
+            # 🚨 [수정됨] 눈금값(그리드) 간격은 유지하되, x축 텍스트를 45도 회전하여 겹침 방지
             ax.xaxis.set_major_locator(ticker.MultipleLocator(50))
             ax.grid(True, color='#555', lw=0.8)
             ax.set_xlabel("Height (mm)", color='white')
             ax.set_ylabel("Brightness", color='white')
+            
+            # tick 색상 설정 및 x축 텍스트 45도 회전 및 우측 정렬
             ax.tick_params(colors='white')
+            plt.setp(ax.get_xticklabels(), rotation=45, ha="right")
+            
             st.pyplot(fig)
             
         st.markdown("---")
