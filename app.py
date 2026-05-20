@@ -3,47 +3,14 @@ import streamlit as st
 import cv2
 import numpy as np
 import math
+import io  # 🚨 바이너리 버퍼 처리를 위해 추가
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
 from PIL import Image, ImageOps
 from streamlit_cropper import st_cropper
-import streamlit.components.v1 as components
 
 # 페이지 기본 설정
 st.set_page_config(page_title="Headlamp Cut-off Analyzer", layout="wide")
-
-# html2canvas를 이용한 클라이언트 사이드 영역별 캡처 스크립트 정의
-# 특정 ID 요소를 찾아 이미지화한 뒤 다운로드 링크를 강제 트리거합니다.
-SCREENSHOT_JS = """
-<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
-<script>
-function captureElement(elementId, filename) {
-    // Streamlit 상위 DOM에서 해당 ID를 가진 요소를 탐색
-    const element = window.parent.document.getElementById(elementId);
-    if (!element) {
-        alert("캡처할 영역을 찾을 수 없습니다. 분석을 먼저 실행해주세요.");
-        return;
-    }
-    
-    // 모바일 대응 및 화질 향상을 위해 scale 옵션 부여
-    html2canvas(element, {
-        scale: 2,
-        useCORS: true,
-        backgroundColor: "#121212"
-    }).then(canvas => {
-        const link = window.parent.document.createElement('a');
-        link.download = filename;
-        link.href = canvas.toDataURL('image/png');
-        link.click();
-    }).catch(err => {
-        console.error("Screenshot error:", err);
-    });
-}
-</script>
-"""
-
-# 자바스크립트 함수 베이스 로드
-components.html(SCREENSHOT_JS, height=0, width=0)
 
 # 아이폰 15 프로 맥스 전용 하드웨어 광학 데이터베이스 (수직 FOV 기준)
 IPHONE_15_PRO_MAX_SPECS = {
@@ -52,7 +19,7 @@ IPHONE_15_PRO_MAX_SPECS = {
     "5x (Telephoto - 120mm)": 12.4
 }
 
-# 제어 패널 UI (사이드바)
+# 제어 패널 UI (사이드바 기본 레이아웃)
 st.sidebar.title("🎛️ 제어 패널")
 D = st.sidebar.number_input("거리 (mm)", value=10000, step=500)
 gain = st.sidebar.slider("밝기 Gain", 0.5, 3.0, 1.0, step=0.1)
@@ -65,21 +32,6 @@ st.sidebar.info("기기: iPhone 15 Pro Max")
 zoom_labels = list(IPHONE_15_PRO_MAX_SPECS.keys())
 zoom_sel = st.sidebar.selectbox("촬영 배율 선택", zoom_labels)
 FOV = IPHONE_15_PRO_MAX_SPECS[zoom_sel]
-
-# 🚨 [신규 기능] 사이드바 스크린샷 저장 버튼 세션
-st.sidebar.markdown("---")
-st.sidebar.subheader("📸 결과 스크린샷 저장")
-
-# 각 버튼 클릭 시 부모창의 자바스크립트 함수를 실행하도록 구성
-if st.sidebar.button("🖼️ 분석 이미지 저장", use_container_width=True):
-    components.html("<script>captureElement('capture-view', 'analysis_image.png');</script>", height=0, width=0)
-
-if st.sidebar.button("📊 그래프 영역 저장", use_container_width=True):
-    components.html("<script>captureElement('capture-graph', 'intensity_profile.png');</script>", height=0, width=0)
-
-if st.sidebar.button("📋 판정 결과 저장", use_container_width=True):
-    components.html("<script>captureElement('capture-result', 'judgment_result.png');</script>", height=0, width=0)
-
 
 # 제목 및 캡션 텍스트
 st.markdown("# 🔦 Headlamp<br>Cut-off Analyzer", unsafe_allow_html=True)
@@ -175,8 +127,6 @@ if uploaded_file is not None:
         view_col, graph_col = st.columns([1, 1])
         
         with view_col:
-            # 🚨 html2canvas 추적용 div 매핑
-            st.markdown('<div id="capture-view">', unsafe_allow_html=True)
             st.subheader("🖼️ 분석 결과 이미지")
             disp_img = img_b.copy()
             font = cv2.FONT_HERSHEY_SIMPLEX
@@ -200,11 +150,8 @@ if uploaded_file is not None:
             
             disp_img_rgb = cv2.cvtColor(disp_img, cv2.COLOR_BGR2RGB)
             st.image(disp_img_rgb, use_container_width=True)
-            st.markdown('</div>', unsafe_allow_html=True)
             
         with graph_col:
-            # 🚨 html2canvas 추적용 div 매핑
-            st.markdown('<div id="capture-graph">', unsafe_allow_html=True)
             st.subheader("📊 Intensity Profile")
             fig, ax = plt.subplots(figsize=(6, 5))
             fig.patch.set_facecolor('#121212')
@@ -231,7 +178,6 @@ if uploaded_file is not None:
             plt.setp(ax.get_xticklabels(), rotation=45, ha="right")
             
             st.pyplot(fig)
-            st.markdown('</div>', unsafe_allow_html=True)
             
         st.markdown("---")
         
@@ -250,9 +196,8 @@ if uploaded_file is not None:
         else:
             eu_status, eu_color = "낮음 (DOWN)", "#ff9f0a"
         
-        # 🚨 html2canvas 추적용 div 매핑
         res_html = f"""
-        <div id="capture-result" style="background-color: #1e1e1e; padding: 20px; border-radius: 10px; border: 1px solid #444; text-align: left;">
+        <div style="background-color: #1e1e1e; padding: 20px; border-radius: 10px; border: 1px solid #444; text-align: left;">
             <div style="margin-bottom: 20px; padding-bottom: 15px; border-bottom: 1px solid #333;">
                 <span style="color: #888; font-size: 14px; font-weight: bold; display: block; margin-bottom: 5px;">🇺🇸 [북미 사양 기준 결과]</span>
                 <span style="font-size: 26px; font-weight: bold; color: white; display: inline-block; margin-right: 20px;">{mm_raw:+.1f} mm ({pct_raw:+.2f}%)</span>
@@ -266,5 +211,59 @@ if uploaded_file is not None:
         </div>
         """
         st.html(res_html)
+
+        # 🚨 [완전 재설계] iOS 호환용 순정 파이썬 데이터 추출 가공 세션
+        # 1. 결과 이미지 바이트 변환
+        img_buffer = io.BytesIO()
+        Image.fromarray(disp_img_rgb).save(img_buffer, format="PNG")
+        img_bytes = img_buffer.getvalue()
+
+        # 2. 그래프 이미지 바이트 변환
+        fig_buffer = io.BytesIO()
+        fig.savefig(fig_buffer, format="PNG", bbox_inches='tight', facecolor=fig.get_facecolor())
+        fig_bytes = fig_buffer.getvalue()
+
+        # 3. 판정 결과 텍스트 파일 구성
+        report_text = (
+            f"[Headlamp Cut-off Analyzer 분석 결과 레포트]\n\n"
+            f"🇺🇸 북미 사양 사양 결과:\n"
+            f" - 오차값: {mm_raw:+.1f} mm ({pct_raw:+.2f}%)\n"
+            f" - 최종 판정: {us_status}\n\n"
+            f"🇪🇺 유럽 사양 사양 결과:\n"
+            f" - 오차값: {mm_std:+.1f} mm ({pct_std:+.2f}%)\n"
+            f" - 최종 판정: {eu_status}\n"
+        )
+        report_bytes = report_text.encode('utf-8')
+
+        # 사이드바 영역에 다운로드 인터페이스 출력
+        st.sidebar.markdown("---")
+        st.sidebar.subheader("📸 결과 데이터 다운로드")
+        
+        st.sidebar.download_button(
+            label="🖼️ 분석 완료 이미지 받기",
+            data=img_bytes,
+            file_name="headlamp_analysis.png",
+            mime="image/png",
+            use_container_width=True
+        )
+        st.sidebar.download_button(
+            label="📊 그래프 프로필 받기",
+            data=fig_bytes,
+            file_name="intensity_profile.png",
+            mime="image/png",
+            use_container_width=True
+        )
+        st.sidebar.download_button(
+            label="📋 판정 결과 레포트 받기",
+            data=report_bytes,
+            file_name="judgment_report.txt",
+            mime="text/plain",
+            use_container_width=True
+        )
     else:
+        st.sidebar.markdown("---")
+        st.sidebar.warning("⚠️ 이미지가 올바르게 분석되지 않아 다운로드 버튼을 활성화할 수 없습니다.")
         st.error("레이저 라인을 인식하지 못했습니다. vivid 컬러의 라인을 ROI 내에 포함시키거나, 밝기 Gain을 조절해 주세요.")
+else:
+    st.sidebar.markdown("---")
+    st.sidebar.info("💡 메인 화면에 이미지를 업로드하시면 결과 저장 버튼이 활성화됩니다.")
