@@ -33,7 +33,7 @@ zoom_sel = st.sidebar.selectbox("촬영 배율 선택", zoom_labels)
 FOV = IPHONE_15_PRO_MAX_SPECS[zoom_sel]
 
 st.title("🔦 Headlamp Cut-off Analyzer")
-st.caption("실시간 라인 라벨링 및 유럽 -1% 가상선 시각화가 적용된 분석기")
+st.caption("모바일 시인성 개선(폰트 3배 확대) 및 그래프 범례가 추가된 정밀 분석기")
 
 # 이미지 업로더
 uploaded_file = st.file_uploader("헤드램프 조사 이미지를 업로드하세요", type=["jpg", "jpeg", "png"])
@@ -84,39 +84,41 @@ if uploaded_file is not None:
 
     x1, y1, x2, y2 = st.session_state.roi_x1, st.session_state.roi_y1, st.session_state.roi_x2, st.session_state.roi_y2
 
+    # 알고리즘: 원본 이미지 기반 vivid 컬러 마스킹 및 분석
     img_b = cv2.cvtColor(np.array(origin_pil), cv2.COLOR_RGB2BGR)
-    roi_b = img_b[y1:y2, x1:x2]
+    orig_hsv = cv2.cvtColor(img_b, cv2.COLOR_BGR2HSV)
     
-    roi_g = np.clip(roi_b.astype(np.float32) * gain, 0, 255).astype(np.uint8)
-    hsv = cv2.cvtColor(roi_g, cv2.COLOR_BGR2HSV)
-    
-    m = cv2.add(
-        cv2.inRange(hsv, np.array([0,100,100]), np.array([10,255,255])), 
+    # vivid 녹색 및 적색 범위 마스킹
+    vivid_mask = cv2.add(
+        cv2.inRange(orig_hsv, np.array([35, 120, 100]), np.array([90, 255, 255])),
         cv2.add(
-            cv2.inRange(hsv, np.array([160,100,100]), np.array([179,255,255])), 
-            cv2.add(
-                cv2.inRange(hsv, np.array([35,80,80]), np.array([90,255,255])), 
-                cv2.inRange(hsv, np.array([25,50,70]), np.array([35,255,255]))
-            )
+            cv2.inRange(orig_hsv, np.array([0, 150, 100]), np.array([10, 255, 255])),
+            cv2.inRange(orig_hsv, np.array([170, 150, 100]), np.array([180, 255, 255]))
         )
     )
+    roi_vivid_mask = vivid_mask[y1:y2, x1:x2]
+    vivid_px_ratio = (cv2.countNonZero(roi_vivid_mask) / (roi_vivid_mask.shape[0] * roi_vivid_mask.shape[1])) * 100
     
-    if np.max(np.sum(m, axis=1)) > 50*255:
-        l_y = np.argmax(np.sum(m, axis=1)) + y1
-        
+    if vivid_px_ratio > 0.05: 
+        vivid_y_sums = np.sum(roi_vivid_mask, axis=1)
+        c_y_auto = np.argmax(vivid_y_sums) + y1
         deg_per_px = FOV / H_img
-        std_y = l_y + (math.degrees(math.atan(0.01)) / deg_per_px)
-        
+        c_y = c_y_auto - (math.degrees(math.atan(manual_offset / D)) / deg_per_px)
+
+        # 레이저 주변 영역 마스킹 후 컷오프 검색
+        safe_margin = 30
+        roi_b = img_b[y1:y2, x1:x2]
+        roi_g = np.clip(roi_b.astype(np.float32) * gain, 0, 255).astype(np.uint8)
         gray = cv2.cvtColor(roi_g, cv2.COLOR_BGR2GRAY)
         grad = cv2.Sobel(cv2.GaussianBlur(gray, (9,9), 0), cv2.CV_64F, 0, 1, ksize=5)
-        rel_l_y = l_y - y1
-        grad[max(0, rel_l_y-15):min(roi_b.shape[0], rel_l_y+15), :] = 0
+        rel_c_y = int(c_y_auto - y1)
+        grad[max(0, rel_c_y - safe_margin):min(roi_b.shape[0], rel_c_y + safe_margin), :] = 0
+        l_y = np.argmax(np.mean(grad, axis=1)) + y1
         
-        c_y_auto = np.argmax(np.mean(grad, axis=1)) + y1
-        c_y = c_y_auto - (math.degrees(math.atan(manual_offset / D)) / deg_per_px)
-        
-        mm_raw = D * math.tan(math.radians((l_y - c_y) * deg_per_px))
-        mm_std = D * math.tan(math.radians((std_y - c_y) * deg_per_px))
+        # 수치 계산
+        std_y = c_y + (math.degrees(math.atan(0.01)) / deg_per_px)
+        mm_raw = D * math.tan(math.radians((c_y - l_y) * deg_per_px))
+        mm_std = D * math.tan(math.radians((std_y - l_y) * deg_per_px))
         pct_raw, pct_std = (mm_raw / D) * 100, (mm_std / D) * 100
         
         st.markdown("---")
@@ -125,43 +127,52 @@ if uploaded_file is not None:
         with view_col:
             st.subheader("🖼️ 분석 결과 이미지")
             disp_img = img_b.copy()
-            # 폰트 설정
+            # 🚨 [폰트 설정 변경] 기존 1.0에서 3.0으로 3배 확대, 두께도 강화
             font = cv2.FONT_HERSHEY_SIMPLEX
-            f_scale = 1.0 # 글자 크기
-            f_thick = 2   # 글자 두께
+            f_scale = 3.0 
+            f_thick = 7   # 굵게 표시하여 시인성 확보
 
-            # 1. 레이저 레벨러 라인 (빨간색) + 라벨
-            cv2.line(disp_img, (0, int(c_y)), (W_img, int(c_y)), (0, 0, 255), 3)
-            cv2.putText(disp_img, "LASER LINE", (20, int(c_y) - 10), font, f_scale, (0, 0, 255), f_thick)
+            # 1. 레이저 정렬선 (빨간색)
+            cv2.line(disp_img, (0, int(c_y)), (W_img, int(c_y)), (0, 0, 255), 5)
+            cv2.putText(disp_img, "LASER LINE", (50, int(c_y) - 30), font, f_scale, (0, 0, 255), f_thick)
 
-            # 2. 인식된 컷오프 라인 (초록색) + 라벨
-            cv2.line(disp_img, (0, int(l_y)), (W_img, int(l_y)), (0, 255, 0), 3)
-            cv2.putText(disp_img, "CUT-OFF", (20, int(l_y) - 10), font, f_scale, (0, 255, 0), f_thick)
+            # 2. 인식된 컷오프 라인 (초록색)
+            cv2.line(disp_img, (0, int(l_y)), (W_img, int(l_y)), (0, 255, 0), 5)
+            cv2.putText(disp_img, "CUT-OFF", (50, int(l_y) - 30), font, f_scale, (0, 255, 0), f_thick)
 
-            # 3. 유럽 사양 1% 하향 가상 라인 (파란색) + 라벨 (🚨 EU -1% Line으로 최종 수정 완료)
-            cv2.line(disp_img, (0, int(std_y)), (W_img, int(std_y)), (255, 0, 0), 2)
-            cv2.putText(disp_img, "EU -1% Line", (W_img - 320, int(std_y) + 35), font, f_scale, (255, 0, 0), f_thick)
+            # 3. 유럽 사양 -1% 하향 가상 라인 (파란색)
+            cv2.line(disp_img, (0, int(std_y)), (W_img, int(std_y)), (255, 0, 0), 4)
+            # 글자가 길어지므로 위치를 오른쪽으로 더 밀어서 배치
+            cv2.putText(disp_img, "EU -1% Line", (W_img - 850, int(std_y) + 100), font, f_scale, (255, 0, 0), f_thick)
 
-            # 유저 선택 ROI 박스 (하늘색)
-            cv2.rectangle(disp_img, (x1, y1), (x2, y2), (255, 255, 0), 2)
+            # ROI 박스 (하늘색)
+            cv2.rectangle(disp_img, (x1, y1), (x2, y2), (255, 255, 0), 3)
             
             disp_img_rgb = cv2.cvtColor(disp_img, cv2.COLOR_BGR2RGB)
-            st.image(disp_img_rgb, use_container_width=True, caption="[레드: 레이저 / 그린: 컷오프 / 블루: 유럽 -1% 기준선]")
+            st.image(disp_img_rgb, use_container_width=True)
             
         with graph_col:
             st.subheader("📊 Intensity Profile")
-            fig, ax = plt.subplots(figsize=(6, 4))
+            fig, ax = plt.subplots(figsize=(6, 5)) # 높이 약간 조절
             fig.patch.set_facecolor('#121212')
             ax.set_facecolor('#1e1e1e')
             
             profile = np.mean(gray, axis=1)
             y_idx = np.arange(y1, y2)
-            mm_ax = [D * math.tan(math.radians((l_y - y) * deg_per_px)) for y in y_idx]
+            mm_ax = [D * math.tan(math.radians((c_y - y) * deg_per_px)) for y in y_idx]
             
-            ax.plot(mm_ax, profile, color='#ffffff', lw=2)
-            ax.axvline(x=0, color='#ff3b30', lw=1.5, label="Recognized")
-            ax.axvline(x=-(D*0.01), color='#0a84ff', linestyle='--', label="EU -1% Std")
-            ax.axvline(x=mm_raw, color='#30d158', lw=2, label="Laser Ref")
+            ax.plot(mm_ax, profile, color='#ffffff', lw=2, label="Profile")
+            
+            # 🚨 [그래프 라벨 및 범례 추가] 
+            # 레이저 정렬선 (기준 0)
+            ax.axvline(x=0, color='#ff3b30', lw=2, label="Laser Line (Ref)")
+            # 실제 인식된 컷오프 위치
+            ax.axvline(x=mm_raw, color='#30d158', lw=2.5, label="Cut-off Line")
+            # 유럽 1% 기준선
+            ax.axvline(x=-(D*0.01), color='#0a84ff', linestyle='--', lw=2, label="EU -1% Line")
+            
+            # 범례 표시 설정 (배경 어둡게, 글자 하얗게)
+            ax.legend(loc='upper right', facecolor='#1e1e1e', edgecolor='white', labelcolor='white', fontsize='medium')
             
             ax.xaxis.set_major_locator(ticker.MultipleLocator(50))
             ax.grid(True, color='#555', lw=0.8)
@@ -172,20 +183,18 @@ if uploaded_file is not None:
             
         st.markdown("---")
         
-        # 북미/유럽 사양 판정 루틴
+        # 사양별 판정 및 출력
         if abs(mm_raw) <= 5.0:
-            us_status, us_color = "정상 (OK)", "#30d158"
+            us_status, us_color = "PASS (OK)", "#30d158"
         elif mm_raw > 5.0:
-            us_status, us_color = "높음 (UP)", "#ff453a"
+            us_status, us_color = "FAIL (TOO HIGH)", "#ff453a"
         else:
-            us_status, us_color = "낮음 (DOWN)", "#ff9f0a"
+            us_status, us_color = "FAIL (TOO LOW)", "#ff9f0a"
 
-        if abs(mm_std) <= 5.0: 
-            eu_status, eu_color = "정상 (OK)", "#0a84ff"
-        elif mm_std > 5.0:
-            eu_status, eu_color = "높음 (UP)", "#ff453a"
+        if mm_std >= 0.0: 
+            eu_status, eu_color = "PASS (OK)", "#0a84ff"
         else:
-            eu_status, eu_color = "낮음 (DOWN)", "#ff9f0a"
+            eu_status, eu_color = "FAIL (TOO HIGH)", "#ff453a"
         
         res_html = f"""
         <div style="background-color: #1e1e1e; padding: 20px; border-radius: 10px; border: 1px solid #444; text-align: left;">
@@ -203,4 +212,4 @@ if uploaded_file is not None:
         """
         st.html(res_html)
     else:
-        st.error("레이저 라인을 인식하지 못했습니다. 밝기 Gain을 조절하거나 다른 이미지를 시도해 주세요.")
+        st.error("레이저 라인을 인식하지 못했습니다. vivid 컬러의 라인을 ROI 내에 포함시키거나, 밝기 Gain을 조절해 주세요.")
