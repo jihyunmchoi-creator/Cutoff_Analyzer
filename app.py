@@ -37,7 +37,7 @@ zoom_sel = st.sidebar.selectbox(
 FOV = fov_options[zoom_sel]
 
 st.title("🔦 Headlamp Cut-off Analyzer")
-st.caption("터치 좌표 실시간 연동 안정화 루틴이 적용된 모바일 분석기")
+st.caption("터치 즉시 화면 강제 새로고침(Rerun) 루틴이 추가된 실시간 분석기")
 
 # 이미지 업로더
 uploaded_file = st.file_uploader("헤드램프 조사 이미지를 업로드하세요", type=["jpg", "jpeg", "png"])
@@ -50,7 +50,7 @@ if uploaded_file is not None:
     
     st.subheader("🔍 분석 영역(ROI) 설정")
     
-    # 1. 영속적 세션 상태 공간 정의 및 초기화 보장
+    # 영속적 세션 상태 공간 정의 및 초기화 보장
     if "roi_x1" not in st.session_state:
         st.session_state.roi_x1 = int(W_img * 0.35)
         st.session_state.roi_y1 = int(H_img * 0.35)
@@ -59,7 +59,7 @@ if uploaded_file is not None:
     
     st.info("💡 이미지 위의 노란색 테두리 상자를 손가락으로 드래그하거나 모서리를 잡고 늘려보세요.")
     
-    # 2. 터치 크롭 도구 실행
+    # 터치 크롭 도구 실행
     cropped_box = st_cropper(
         origin_pil, 
         realtime_update=True, 
@@ -68,22 +68,29 @@ if uploaded_file is not None:
         return_type='box'
     )
     
-    # 3. 🚨 실시간 감지 연동 코어 로직
-    # 손가락을 움직여 새로운 상자 정보가 들어오면 즉시 세션 내부 영구 좌표를 덮어씁니다.
+    # 🚨 [실시간 미반응 해결 핵심 코드] 
+    # 기존 값과 비교하여 사용자가 손가락을 움직여 1픽셀이라도 좌표가 바뀌었다면 
+    # 세션을 업데이트하고 즉시 페이지를 강제 새로고침(rerun) 시킵니다.
     if cropped_box is not None and isinstance(cropped_box, dict) and 'x' in cropped_box:
         tx1 = int(cropped_box['x'])
         ty1 = int(cropped_box['y'])
         tx2 = int(tx1 + cropped_box['w'])
         ty2 = int(ty1 + cropped_box['h'])
         
-        # 최소 크기(10픽셀) 이상 움직였을 때만 상태를 즉각 강제 변경하여 분석란에 전송
         if (tx2 - tx1) >= 10 and (ty2 - ty1) >= 10:
-            st.session_state.roi_x1 = tx1
-            st.session_state.roi_y1 = ty1
-            st.session_state.roi_x2 = tx2
-            st.session_state.roi_y2 = ty2
+            # 기존에 저장된 세션 값과 새로 들어온 터치 값이 다를 때만 트리거
+            if (st.session_state.roi_x1 != tx1 or 
+                st.session_state.roi_y1 != ty1 or 
+                st.session_state.roi_x2 != tx2 or 
+                st.session_state.roi_y2 != ty2):
+                
+                st.session_state.roi_x1 = tx1
+                st.session_state.roi_y1 = ty1
+                st.session_state.roi_x2 = tx2
+                st.session_state.roi_y2 = ty2
+                st.rerun() # 🔄 백엔드 프로세싱 및 분석 이미지란을 강제로 즉시 갱신
 
-    # 최종 연산부에서 사용할 좌표는 무조건 세션에 락인된 값을 실시간 추적하도록 강제 고정
+    # 연산부 변수 할당
     x1, y1, x2, y2 = st.session_state.roi_x1, st.session_state.roi_y1, st.session_state.roi_x2, st.session_state.roi_y2
 
     # OpenCV 프로세싱 진행
